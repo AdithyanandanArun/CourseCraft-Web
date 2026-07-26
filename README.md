@@ -15,4 +15,6 @@ npm run dev
 ## Deployment
 
 GitHub Pages deploys from `working-branch`. Set `SUPABASE_URL` and `SUPABASE_ANON_KEY` as GitHub
-Actions repository secrets before the production rollout.
+Actions repository secrets before the production rollout. They are exposed to Vite only as the
+public browser values `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`; do not place a Supabase
+service-role key in this repository or in GitHub Pages secrets.
