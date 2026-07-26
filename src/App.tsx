@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import type { Session, SupabaseClient, User } from '@supabase/supabase-js'
-import { BookOpen, GraduationCap, LogOut, Plus, RefreshCw, UserRoundPlus } from 'lucide-react'
+import { BookOpen, GraduationCap, LogOut, Plus, RefreshCw, UserRoundPlus, X } from 'lucide-react'
 
 import {
   createAssessment,
@@ -216,7 +216,7 @@ function LoadingScreen() { return <main className="loading-screen"><span classNa
 function Brand() { return <a className="brand" href="/CourseCraft-Web/"><span className="brand-mark"><GraduationCap size={20} /></span><span>CourseCraft</span></a> }
 
 function Modal({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
-  return <div className="modal-backdrop" role="presentation" onMouseDown={onClose}><section className="modal" role="dialog" aria-modal="true" aria-label={title} onMouseDown={(event) => event.stopPropagation()}><div className="modal-heading"><h2>{title}</h2><button className="icon-button" type="button" aria-label="Close" onClick={onClose}>x</button></div>{children}</section></div>
+  return <div className="modal-backdrop" role="presentation" onMouseDown={onClose}><section className="modal" role="dialog" aria-modal="true" aria-label={title} onMouseDown={(event) => event.stopPropagation()}><div className="modal-heading"><h2>{title}</h2><button className="icon-button" type="button" aria-label="Close" title="Close" onClick={onClose}><X size={20} /></button></div>{children}</section></div>
 }
 
 function SemesterModal({ client, spaceId, onClose, onSaved }: { client: SupabaseClient; spaceId: string; onClose: () => void; onSaved: () => void }) {
