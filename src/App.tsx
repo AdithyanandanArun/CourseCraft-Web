@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import type { Session, SupabaseClient, User } from '@supabase/supabase-js'
-import { BookOpen, GraduationCap, LogOut, Plus, RefreshCw, UserRoundPlus, X } from 'lucide-react'
+import { BookOpen, GraduationCap, LogOut, Moon, Plus, RefreshCw, Sun, UserRoundPlus, X } from 'lucide-react'
 
 import {
   createAssessment,
@@ -18,8 +18,17 @@ import { supabase } from './lib/supabase'
 import './App.css'
 
 function App() {
-  if (!supabase) return <ConfigurationScreen />
-  return <AuthenticatedApp client={supabase} />
+  const [dark, setDark] = useState(() => localStorage.getItem('coursecraft-theme') === 'dark')
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = dark ? 'dark' : 'light'
+    localStorage.setItem('coursecraft-theme', dark ? 'dark' : 'light')
+  }, [dark])
+
+  return <>
+    <ThemeToggle dark={dark} onToggle={() => setDark((current) => !current)} />
+    {!supabase ? <ConfigurationScreen /> : <AuthenticatedApp client={supabase} />}
+  </>
 }
 
 function ConfigurationScreen() {
@@ -214,6 +223,10 @@ function ErrorScreen({ message, onRetry, onSignOut }: { message: string; onRetry
 
 function LoadingScreen() { return <main className="loading-screen"><span className="loader" aria-label="Loading CourseCraft" /></main> }
 function Brand() { return <a className="brand" href="/CourseCraft-Web/"><span className="brand-mark"><GraduationCap size={20} /></span><span>CourseCraft</span></a> }
+function ThemeToggle({ dark, onToggle }: { dark: boolean; onToggle: () => void }) {
+  const label = dark ? 'Use light theme' : 'Use dark theme'
+  return <button className="theme-toggle" type="button" aria-label={label} title={label} aria-pressed={dark} onClick={onToggle}>{dark ? <Sun size={19} /> : <Moon size={19} />}</button>
+}
 
 function Modal({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
   return <div className="modal-backdrop" role="presentation" onMouseDown={onClose}><section className="modal" role="dialog" aria-modal="true" aria-label={title} onMouseDown={(event) => event.stopPropagation()}><div className="modal-heading"><h2>{title}</h2><button className="icon-button" type="button" aria-label="Close" title="Close" onClick={onClose}><X size={20} /></button></div>{children}</section></div>
