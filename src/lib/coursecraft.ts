@@ -161,6 +161,11 @@ export async function importTimetable(client: SupabaseClient, input: { spaceId: 
   return data as { subjectsCreated: number; slotsCreated: number }
 }
 
+export async function deleteTimetable(client: SupabaseClient, spaceId: string) {
+  const { error } = await client.from('timetable_slots').delete().eq('space_id', spaceId)
+  if (error) throw error
+}
+
 export async function savePlanningItem(client: SupabaseClient, table: 'events' | 'tasks' | 'habits' | 'notes', item: Record<string, unknown>) {
   const payload = { ...item }
   if (table === 'tasks' || table === 'notes') {

@@ -6,6 +6,7 @@ import {
   createAssessment,
   createSemester,
   createSubject,
+  deleteTimetable,
   ensureProfile,
   importTimetable,
   loadAcademics,
@@ -239,7 +240,7 @@ function PlanningBoard({ client, spaceId, subjects, onImport }: { client: Supaba
     <p className="planner-intro">Turn an image timetable into structured classes with an AI model, then paste the JSON here. Attendance remains under your control.</p>
     {error && <p className="form-message">{error}</p>}
     {!data ? <div className="planner-loading">Loading planner...</div> : <div className="planner-grid">
-      <PlannerPanel icon={<CalendarDays size={18} />} title="Today’s timetable" action={<button className="text-button" type="button" onClick={onImport}>Import</button>}>
+      <PlannerPanel icon={<CalendarDays size={18} />} title="Today’s timetable" action={<div className="planner-actions"><button className="text-button" type="button" onClick={onImport}>Import</button>{data.slots.length > 0 && <button className="text-button destructive" type="button" onClick={() => { if (window.confirm('Clear every class from this timetable? Subjects and attendance records will be kept. This cannot be undone.')) void deleteTimetable(client, spaceId).then(reload).catch((reason: unknown) => setError(reason instanceof Error ? reason.message : 'Could not clear the timetable.')) }}>Clear</button>}</div>}>
         {todaySlots.length ? todaySlots.map((slot) => <div className="planner-row" key={slot.id}><strong>{slot.start_time.slice(0, 5)} - {slot.end_time.slice(0, 5)}</strong><span>{slot.subject?.name ?? 'Untitled class'}{slot.room ? ` · ${slot.room}` : ''}</span></div>) : <p className="empty-copy">No classes scheduled today.</p>}
       </PlannerPanel>
       <PlannerPanel icon={<ClipboardCheck size={18} />} title="Attendance">
