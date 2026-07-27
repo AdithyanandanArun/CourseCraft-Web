@@ -161,8 +161,8 @@ export async function importTimetable(client: SupabaseClient, input: { spaceId: 
   return data as { subjectsCreated: number; slotsCreated: number }
 }
 
-export async function deleteTimetable(client: SupabaseClient, spaceId: string) {
-  const { error } = await client.from('timetable_slots').delete().eq('space_id', spaceId)
+export async function deleteTimetable(client: SupabaseClient, input: { spaceId: string; semesterId: string }) {
+  const { error } = await client.rpc('clear_timetable_and_subjects', { p_space_id: input.spaceId, p_semester_id: input.semesterId })
   if (error) throw error
 }
 

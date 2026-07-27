@@ -202,7 +202,7 @@ function StudentWorkspace({ client, profile }: { client: SupabaseClient; profile
             </section>
             <aside className="next-section"><p className="eyebrow">NEXT ACTION</p><h2>Get a reliable projection.</h2><p className="aside-copy">Add each assessment's weighting and the marks you receive. CourseCraft will calculate a credit-weighted SGPA.</p><div className="advisor-callout"><UserRoundPlus size={19} /><div><strong>Advisor access is optional.</strong><p>Student workflows remain yours until you deliberately pair an advisor.</p></div></div></aside>
           </section>
-          <PlanningBoard client={client} spaceId={profile.space_id!} subjects={snapshot.subjects} onImport={() => setModal('timetable')} />
+          <PlanningBoard client={client} spaceId={profile.space_id!} semesterId={snapshot.semester.id} subjects={snapshot.subjects} onImport={() => setModal('timetable')} />
         </>
       )}
       {modal === 'semester' && <SemesterModal client={client} spaceId={profile.space_id!} onClose={() => setModal(null)} onSaved={() => { setModal(null); load() }} />}
@@ -227,7 +227,7 @@ const timetablePrompt = `Analyze the attached timetable image and convert it int
 {"subjects":[{"name":"Subject Name","schedules":[{"day":"Monday","classTimes":[{"startTime":"09:00 AM","endTime":"10:30 AM","roomNumber":"Room 101"}]}]}]}
 Return ONLY the raw JSON text. Do not wrap it in markdown blocks like \`\`\`json.`
 
-function PlanningBoard({ client, spaceId, subjects, onImport }: { client: SupabaseClient; spaceId: string; subjects: AcademicSubject[]; onImport: () => void }) {
+function PlanningBoard({ client, spaceId, semesterId, subjects, onImport }: { client: SupabaseClient; spaceId: string; semesterId: string; subjects: AcademicSubject[]; onImport: () => void }) {
   const [data, setData] = useState<PlanningSnapshot | null>(null)
   const [error, setError] = useState<string | null>(null)
   const reload = () => { setError(null); void loadPlanning(client, spaceId).then(setData).catch((reason: unknown) => setError(reason instanceof Error ? reason.message : 'Could not load your planner.')) }
@@ -240,7 +240,7 @@ function PlanningBoard({ client, spaceId, subjects, onImport }: { client: Supaba
     <p className="planner-intro">Turn an image timetable into structured classes with an AI model, then paste the JSON here. Attendance remains under your control.</p>
     {error && <p className="form-message">{error}</p>}
     {!data ? <div className="planner-loading">Loading planner...</div> : <div className="planner-grid">
-      <PlannerPanel icon={<CalendarDays size={18} />} title="Today’s timetable" action={<div className="planner-actions"><button className="text-button" type="button" onClick={onImport}>Import</button>{data.slots.length > 0 && <button className="text-button destructive" type="button" onClick={() => { if (window.confirm('Clear every class from this timetable? Subjects and attendance records will be kept. This cannot be undone.')) void deleteTimetable(client, spaceId).then(reload).catch((reason: unknown) => setError(reason instanceof Error ? reason.message : 'Could not clear the timetable.')) }}>Clear</button>}</div>}>
+      <PlannerPanel icon={<CalendarDays size={18} />} title="Today’s timetable" action={<div className="planner-actions"><button className="text-button" type="button" onClick={onImport}>Import</button>{data.slots.length > 0 && <button className="text-button destructive" type="button" onClick={() => { if (window.confirm('Clear this timetable and all its subjects? Linked assessments and attendance records will also be deleted. This cannot be undone.')) void deleteTimetable(client, { spaceId, semesterId }).then(reload).catch((reason: unknown) => setError(reason instanceof Error ? reason.message : 'Could not clear the timetable.')) }}>Clear</button>}</div>}>
         {todaySlots.length ? todaySlots.map((slot) => <div className="planner-row" key={slot.id}><strong>{slot.start_time.slice(0, 5)} - {slot.end_time.slice(0, 5)}</strong><span>{slot.subject?.name ?? 'Untitled class'}{slot.room ? ` · ${slot.room}` : ''}</span></div>) : <p className="empty-copy">No classes scheduled today.</p>}
       </PlannerPanel>
       <PlannerPanel icon={<ClipboardCheck size={18} />} title="Attendance">
@@ -273,7 +273,7 @@ function AttachmentUpload({ client, spaceId, onDone }: { client: SupabaseClient;
 
 function TimetableImportModal({ client, spaceId, semesterId, onClose, onSaved }: { client: SupabaseClient; spaceId: string; semesterId: string; onClose: () => void; onSaved: () => void }) {
   const [json, setJson] = useState(''); const [copied, setCopied] = useState(false); const [error, setError] = useState<string | null>(null); const [pending, setPending] = useState(false)
-  async function submit() { setError(null); let timetable: unknown; try { timetable = JSON.parse(json) } catch { setError('Paste valid JSON only, without markdown fences.'); return } setPending(true); try { await importTimetable(client, { spaceId, semesterId, timetable }); onSaved() } catch (reason) { setError(reason instanceof Error ? reason.message : 'Could not import this timetable.') } finally { setPending(false) } }
+  async function submit() { setError(null); let timetable: unknown; try { timetable = JSON.parse(json) } catch { setError('Paste valid JSON only, without markdown fences.'); return } if (!window.confirm('Import this timetable and replace all current subjects for this semester? Linked assessments and attendance records will be deleted.')) return; setPending(true); try { await importTimetable(client, { spaceId, semesterId, timetable }); onSaved() } catch (reason) { setError(reason instanceof Error ? reason.message : 'Could not import this timetable.') } finally { setPending(false) } }
   return <Modal title="Import timetable from an image" onClose={onClose}><div className="import-steps"><p>1. Upload your timetable image to ChatGPT or another AI model.</p><p>2. Copy this prompt, then paste its raw JSON response below.</p><button className="text-button" type="button" onClick={() => void navigator.clipboard.writeText(timetablePrompt).then(() => setCopied(true))}>{copied ? 'Prompt copied' : 'Copy extraction prompt'}</button><label>Timetable JSON<textarea value={json} onChange={(event) => setJson(event.target.value)} placeholder='{"subjects":[...]}' rows={10} /></label>{error && <p className="form-message">{error}</p>}<button className="primary-action wide" type="button" disabled={pending} onClick={() => void submit()}>{pending ? 'Importing...' : 'Create timetable and subjects'}</button></div></Modal>
 }
 
