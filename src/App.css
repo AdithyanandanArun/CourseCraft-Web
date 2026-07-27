@@ -65,6 +65,7 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid 
 .metric strong { margin: 9px 0; color: var(--ink); font-family: "Plus Jakarta Sans", sans-serif; font-size: 34px; line-height: 1; }
 .metric .metric-name { font-size: 21px; line-height: 1.25; }
 .content-grid { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(300px, .9fr); gap: 30px; margin-top: 46px; }
+.dashboard-subjects-grid { grid-template-columns: minmax(0, 1fr); }
 .subjects-section, .next-section { padding: 30px; border-radius: 32px; box-shadow: var(--raised); }
 .section-heading { display: flex; align-items: end; justify-content: space-between; gap: 16px; margin-bottom: 22px; }
 .text-button { min-height: 44px; border: 0; border-radius: 12px; padding: 8px 10px; color: var(--accent-strong); background: transparent; font-weight: 700; transition: background .3s ease-out, box-shadow .3s ease-out; }
@@ -75,6 +76,7 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid 
 .subject-icon { display: grid; width: 46px; height: 46px; place-items: center; border-radius: 15px; color: var(--accent); box-shadow: var(--raised-small); }
 .subject-detail p, .advisor-callout p { margin-bottom: 5px; color: var(--muted); font-size: 14px; line-height: 1.45; }
 .subject-detail small { display: block; color: var(--muted); line-height: 1.5; }
+.assessment-edit { display: flex; width: 100%; align-items: center; gap: 6px; border: 0; padding: 4px 0; color: var(--muted); background: transparent; text-align: left; }.assessment-edit:hover { color: var(--accent-strong); }
 .grade { display: grid; min-width: 82px; justify-items: end; gap: 5px; text-align: right; }
 .grade strong { color: var(--ink); font-family: "Plus Jakarta Sans", sans-serif; font-size: 19px; }
 .next-section { align-self: start; }

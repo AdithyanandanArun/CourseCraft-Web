@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import type { Session, SupabaseClient, User } from '@supabase/supabase-js'
-import { BookOpen, CalendarDays, Check, CheckCircle2, ChevronLeft, ChevronRight, ClipboardCheck, GraduationCap, ImageUp, LayoutDashboard, ListTodo, LogOut, Moon, NotebookPen, Paperclip, Pencil, Plus, RefreshCw, Settings, Sun, Table2, Trash2, UserRoundPlus, X } from 'lucide-react'
+import { BookOpen, CalendarDays, Check, CheckCircle2, ChevronLeft, ChevronRight, ClipboardCheck, GraduationCap, ImageUp, LayoutDashboard, ListTodo, LogOut, Moon, NotebookPen, Paperclip, Pencil, Plus, RefreshCw, Settings, Sun, Table2, Trash2, X } from 'lucide-react'
 
 import {
   createAssessment,
@@ -18,11 +18,12 @@ import {
   subjectPercentage,
   toggleHabit,
   toggleTask,
-  updateSubjectAttendanceTarget,
+  updateAssessment,
+  updateSubject,
   saveTimetableSlot,
   type AcademicSnapshot,
   type AcademicSubject,
-  type Profile, type PlanningSnapshot, type TimetableSlot,
+  type Assessment, type Profile, type PlanningSnapshot, type TimetableSlot,
 } from './lib/coursecraft'
 import { calculateSgpa } from './lib/sgpa'
 import { supabase } from './lib/supabase'
@@ -155,7 +156,9 @@ function StudentWorkspace({ client, profile }: { client: SupabaseClient; profile
   const [view, setView] = useState<'dashboard' | 'subjects' | 'daily' | 'timetable' | 'account'>('dashboard')
   const [modal, setModal] = useState<'semester' | 'subject' | 'assessment' | 'timetable' | 'slot' | null>(null)
   const [assessmentSubject, setAssessmentSubject] = useState<AcademicSubject | null>(null)
+  const [editingAssessment, setEditingAssessment] = useState<Assessment | null>(null)
   const [editingSlot, setEditingSlot] = useState<TimetableSlot | null>(null)
+  const [editingSubject, setEditingSubject] = useState<AcademicSubject | null>(null)
 
   const load = () => {
     setSnapshot(null)
@@ -197,36 +200,35 @@ function StudentWorkspace({ client, profile }: { client: SupabaseClient; profile
         <>
           <section className="overview" aria-label="Semester overview">
             <article className="metric"><span>Projected SGPA</span><strong>{sgpa?.toFixed(2) ?? '---'}</strong><small>{sgpa ? 'From your entered marks' : 'Add marks to calculate it'}</small></article>
-            <article className="metric"><span>Current semester</span><strong className="metric-name">{snapshot.semester.name}</strong><small>{snapshot.subjects.length} subject{snapshot.subjects.length === 1 ? '' : 's'}</small></article>
             <article className="metric"><span>Advisor coaching</span><strong className="metric-name">Optional</strong><small>Pairing arrives in Phase 3</small></article>
           </section>
-          <section className="content-grid">
+          <PlanningBoard client={client} spaceId={profile.space_id!} semesterId={snapshot.semester.id} subjects={snapshot.subjects} />
+          <section className="content-grid dashboard-subjects-grid">
             <section className="subjects-section" aria-labelledby="subjects-heading">
               <div className="section-heading"><div><p className="eyebrow">CURRENT SEMESTER</p><h2 id="subjects-heading">Subjects</h2></div><button className="text-button" type="button" onClick={() => setModal('subject')}>Add subject</button></div>
               {snapshot.subjects.length === 0 ? <p className="empty-copy">Add your first subject, then record assessment weights and marks.</p> : <div className="subject-list">
-                {snapshot.subjects.map((subject) => <SubjectRow key={subject.id} subject={subject} onAddAssessment={() => { setAssessmentSubject(subject); setModal('assessment') }} />)}
+                {snapshot.subjects.map((subject) => <SubjectRow key={subject.id} subject={subject} onAddAssessment={() => { setEditingAssessment(null); setAssessmentSubject(subject); setModal('assessment') }} onEditAssessment={(assessment) => { setEditingAssessment(assessment); setAssessmentSubject(subject); setModal('assessment') }} />)}
               </div>}
             </section>
-            <aside className="next-section"><p className="eyebrow">NEXT ACTION</p><h2>Get a reliable projection.</h2><p className="aside-copy">Add each assessment's weighting and the marks you receive. CourseCraft will calculate a credit-weighted SGPA.</p><div className="advisor-callout"><UserRoundPlus size={19} /><div><strong>Advisor access is optional.</strong><p>Student workflows remain yours until you deliberately pair an advisor.</p></div></div></aside>
           </section>
-          <PlanningBoard client={client} spaceId={profile.space_id!} semesterId={snapshot.semester.id} subjects={snapshot.subjects} onImport={() => setModal('timetable')} />
         </>
-      ) : view === 'subjects' ? <SubjectsView client={client} snapshot={snapshot} onAdd={() => setModal('subject')} onRefresh={load} onAddAssessment={(subject) => { setAssessmentSubject(subject); setModal('assessment') }} />
+      ) : view === 'subjects' ? <SubjectsView snapshot={snapshot} onAdd={() => setModal('subject')} onEdit={(subject) => setEditingSubject(subject)} onAddAssessment={(subject) => { setEditingAssessment(null); setAssessmentSubject(subject); setModal('assessment') }} />
         : view === 'daily' ? <DailyLogView client={client} spaceId={profile.space_id!} subjects={snapshot.subjects} />
           : view === 'timetable' ? <TimetableView client={client} spaceId={profile.space_id!} onImport={() => setModal('timetable')} onAddSlot={() => { setEditingSlot(null); setModal('slot') }} onEditSlot={(slot) => { setEditingSlot(slot); setModal('slot') }} />
             : <AccountView client={client} profile={profile} />}
       {modal === 'semester' && <SemesterModal client={client} spaceId={profile.space_id!} onClose={() => setModal(null)} onSaved={() => { setModal(null); load() }} />}
       {modal === 'subject' && snapshot.semester && <SubjectModal client={client} spaceId={profile.space_id!} semesterId={snapshot.semester.id} onClose={() => setModal(null)} onSaved={() => { setModal(null); load() }} />}
-      {modal === 'assessment' && assessmentSubject && <AssessmentModal client={client} spaceId={profile.space_id!} subject={assessmentSubject} onClose={() => setModal(null)} onSaved={() => { setModal(null); load() }} />}
+      {modal === 'assessment' && assessmentSubject && <AssessmentModal client={client} spaceId={profile.space_id!} subject={assessmentSubject} assessment={editingAssessment} onClose={() => setModal(null)} onSaved={() => { setModal(null); load() }} />}
+      {editingSubject && <SubjectEditModal client={client} subject={editingSubject} onClose={() => setEditingSubject(null)} onSaved={() => { setEditingSubject(null); load() }} />}
       {modal === 'timetable' && snapshot.semester && <TimetableImportModal client={client} spaceId={profile.space_id!} semesterId={snapshot.semester.id} onClose={() => setModal(null)} onSaved={() => { setModal(null); load() }} />}
       {modal === 'slot' && snapshot.semester && <SlotModal client={client} spaceId={profile.space_id!} subjects={snapshot.subjects} slot={editingSlot} onClose={() => setModal(null)} onSaved={() => { setModal(null); load() }} />}
     </main>
   )
 }
 
-function SubjectRow({ subject, onAddAssessment }: { subject: AcademicSubject; onAddAssessment: () => void }) {
+function SubjectRow({ subject, onAddAssessment, onEditAssessment }: { subject: AcademicSubject; onAddAssessment: () => void; onEditAssessment: (assessment: Assessment) => void }) {
   const percentage = subjectPercentage(subject)
-  return <article className="subject-row"><div className="subject-icon"><BookOpen size={18} /></div><div className="subject-detail"><h3>{subject.name}</h3><p>{subject.code ? `${subject.code} · ` : ''}{subject.credits} credits · {subject.assessments.length} assessment{subject.assessments.length === 1 ? '' : 's'}</p>{subject.assessments.map((assessment) => <small key={assessment.id}>{assessment.title}: {assessment.obtained_marks ?? '-'} / {assessment.max_marks} ({assessment.weight_pct}%)</small>)}</div><div className="grade"><strong>{percentage === null ? '---' : `${percentage.toFixed(0)}%`}</strong><button className="text-button" type="button" onClick={onAddAssessment}>Add marks</button></div></article>
+  return <article className="subject-row"><div className="subject-icon"><BookOpen size={18} /></div><div className="subject-detail"><h3>{subject.name}</h3><p>{subject.code ? `${subject.code} · ` : ''}{subject.credits} credits · {subject.assessments.length} assessment{subject.assessments.length === 1 ? '' : 's'}</p>{subject.assessments.map((assessment) => <button className="assessment-edit" key={assessment.id} type="button" onClick={() => onEditAssessment(assessment)}>{assessment.title}: {assessment.obtained_marks ?? '-'} / {assessment.max_marks} ({assessment.weight_pct}%) <Pencil size={13} /></button>)}</div><div className="grade"><strong>{percentage === null ? '---' : `${percentage.toFixed(0)}%`}</strong><button className="text-button" type="button" onClick={onAddAssessment}>Add marks</button></div></article>
 }
 
 function WorkspaceNav({ view, onChange }: { view: 'dashboard' | 'subjects' | 'daily' | 'timetable' | 'account'; onChange: (view: 'dashboard' | 'subjects' | 'daily' | 'timetable' | 'account') => void }) {
@@ -234,9 +236,8 @@ function WorkspaceNav({ view, onChange }: { view: 'dashboard' | 'subjects' | 'da
   return <nav className="workspace-nav" aria-label="Workspace"><div className="nav-scroll">{items.map(([id, Icon, label]) => <button key={id} type="button" className={view === id ? 'active' : ''} onClick={() => onChange(id)}><Icon size={18} />{label}</button>)}</div></nav>
 }
 
-function SubjectsView({ client, snapshot, onAdd, onRefresh, onAddAssessment }: { client: SupabaseClient; snapshot: AcademicSnapshot; onAdd: () => void; onRefresh: () => void; onAddAssessment: (subject: AcademicSubject) => void }) {
-  const [editing, setEditing] = useState<string | null>(null)
-  return <section className="view-page"><div className="view-heading"><div><p className="eyebrow">ACADEMICS</p><h1>Subjects</h1><p className="intro">Set the attendance requirement for every subject and keep marks close at hand.</p></div><button className="primary-action" onClick={onAdd}><Plus size={18} /> Add subject</button></div><div className="subject-settings-list">{snapshot.subjects.map((subject) => <article className="subject-setting" key={subject.id}><div><h2>{subject.name}</h2><p>{subject.code ? `${subject.code} · ` : ''}{subject.credits} credits · {subject.assessments.length} assessments</p></div><div className="target-control"><label>Attendance target<input type="number" min="1" max="100" step="1" defaultValue={subject.attendance_target} disabled={editing !== subject.id} onBlur={(event) => { const next = Number(event.target.value); if (next > 0 && next <= 100 && next !== subject.attendance_target) void updateSubjectAttendanceTarget(client, subject.id, next).then(onRefresh) }} /></label><button className="icon-button" aria-label={`Edit ${subject.name} attendance target`} title="Edit target" onClick={() => setEditing(editing === subject.id ? null : subject.id)}>{editing === subject.id ? <Check size={18} /> : <Pencil size={18} />}</button></div><button className="text-button" onClick={() => onAddAssessment(subject)}>Add marks</button></article>)}</div></section>
+function SubjectsView({ snapshot, onAdd, onEdit, onAddAssessment }: { snapshot: AcademicSnapshot; onAdd: () => void; onEdit: (subject: AcademicSubject) => void; onAddAssessment: (subject: AcademicSubject) => void }) {
+  return <section className="view-page"><div className="view-heading"><div><p className="eyebrow">ACADEMICS</p><h1>Subjects</h1><p className="intro">Set subject details and attendance requirements, then keep marks close at hand.</p></div><button className="primary-action" onClick={onAdd}><Plus size={18} /> Add subject</button></div><div className="subject-settings-list">{snapshot.subjects.map((subject) => <article className="subject-setting" key={subject.id}><div><h2>{subject.name}</h2><p>{subject.code ? `${subject.code} · ` : ''}{subject.credits} credits · target {subject.attendance_target ?? 75}% · {subject.assessments.length} assessments</p></div><button className="icon-button" aria-label={`Edit ${subject.name}`} title="Edit subject" onClick={() => onEdit(subject)}><Pencil size={18} /></button><button className="text-button" onClick={() => onAddAssessment(subject)}>Add marks</button></article>)}</div></section>
 }
 
 function DailyLogView({ client, spaceId, subjects }: { client: SupabaseClient; spaceId: string; subjects: AcademicSubject[] }) {
@@ -261,7 +262,7 @@ const timetablePrompt = `Analyze the attached timetable image and convert it int
 {"subjects":[{"name":"Subject Name","schedules":[{"day":"Monday","classTimes":[{"startTime":"09:00 AM","endTime":"10:30 AM","roomNumber":"Room 101"}]}]}]}
 Return ONLY the raw JSON text. Do not wrap it in markdown blocks like \`\`\`json.`
 
-function PlanningBoard({ client, spaceId, semesterId, subjects, onImport }: { client: SupabaseClient; spaceId: string; semesterId: string; subjects: AcademicSubject[]; onImport: () => void }) {
+function PlanningBoard({ client, spaceId, semesterId, subjects }: { client: SupabaseClient; spaceId: string; semesterId: string; subjects: AcademicSubject[] }) {
   const [data, setData] = useState<PlanningSnapshot | null>(null)
   const [error, setError] = useState<string | null>(null)
   const reload = () => { setError(null); void loadPlanning(client, spaceId).then(setData).catch((reason: unknown) => setError(reason instanceof Error ? reason.message : 'Could not load your planner.')) }
@@ -270,11 +271,11 @@ function PlanningBoard({ client, spaceId, semesterId, subjects, onImport }: { cl
   const today = new Date().getDay() || 7
   const todaySlots = data?.slots.filter((slot) => slot.day_of_week === today) ?? []
   return <section className="planner-section" aria-labelledby="planning-heading">
-    <div className="section-heading"><div><p className="eyebrow">PHASE 2</p><h2 id="planning-heading">Academic planning</h2></div><button className="primary-action" type="button" onClick={onImport}><ImageUp size={18} /> Import timetable</button></div>
+    <div className="section-heading"><div><p className="eyebrow">PHASE 2</p><h2 id="planning-heading">Academic planning</h2></div></div>
     <p className="planner-intro">Turn an image timetable into structured classes with an AI model, then paste the JSON here. Attendance remains under your control.</p>
     {error && <p className="form-message">{error}</p>}
     {!data ? <div className="planner-loading">Loading planner...</div> : <div className="planner-grid">
-      <PlannerPanel icon={<CalendarDays size={18} />} title="Today’s timetable" action={<div className="planner-actions"><button className="text-button" type="button" onClick={onImport}>Import</button>{data.slots.length > 0 && <button className="text-button destructive" type="button" onClick={() => { if (window.confirm('Clear this timetable and all its subjects? Linked assessments and attendance records will also be deleted. This cannot be undone.')) void deleteTimetable(client, { spaceId, semesterId }).then(reload).catch((reason: unknown) => setError(reason instanceof Error ? reason.message : 'Could not clear the timetable.')) }}>Clear</button>}</div>}>
+      <PlannerPanel icon={<CalendarDays size={18} />} title="Today’s timetable" action={<div className="planner-actions">{data.slots.length > 0 && <button className="text-button destructive" type="button" onClick={() => { if (window.confirm('Clear this timetable and all its subjects? Linked assessments and attendance records will also be deleted. This cannot be undone.')) void deleteTimetable(client, { spaceId, semesterId }).then(reload).catch((reason: unknown) => setError(reason instanceof Error ? reason.message : 'Could not clear the timetable.')) }}>Clear</button>}</div>}>
         {todaySlots.length ? todaySlots.map((slot) => <div className="planner-row" key={slot.id}><strong>{slot.start_time.slice(0, 5)} - {slot.end_time.slice(0, 5)}</strong><span>{slot.subject?.name ?? 'Untitled class'}{slot.room ? ` · ${slot.room}` : ''}</span></div>) : <p className="empty-copy">No classes scheduled today.</p>}
       </PlannerPanel>
       <PlannerPanel icon={<ClipboardCheck size={18} />} title="Attendance">
@@ -342,18 +343,22 @@ function SubjectModal({ client, spaceId, semesterId, onClose, onSaved }: { clien
   return <Modal title="Add subject" onClose={onClose}><AsyncForm onSubmit={async (form) => createSubject(client, { spaceId, semesterId, name: String(form.get('name') ?? ''), code: String(form.get('code') ?? ''), credits: Number(form.get('credits')) })} onSaved={onSaved}><label>Subject name<input name="name" required autoFocus /></label><label>Subject code <span>(optional)</span><input name="code" /></label><label>Credits<input name="credits" type="number" min="0.5" step="0.5" defaultValue="3" required /></label><button className="primary-action wide" type="submit">Add subject</button></AsyncForm></Modal>
 }
 
-function AssessmentModal({ client, spaceId, subject, onClose, onSaved }: { client: SupabaseClient; spaceId: string; subject: AcademicSubject; onClose: () => void; onSaved: () => void }) {
-  return <Modal title={`Add assessment to ${subject.name}`} onClose={onClose}><AsyncForm onSubmit={async (form) => { const rawMarks = String(form.get('obtainedMarks') ?? '').trim(); return createAssessment(client, { spaceId, subjectId: subject.id, title: String(form.get('title') ?? ''), weightPct: Number(form.get('weightPct')), maxMarks: Number(form.get('maxMarks')), obtainedMarks: rawMarks ? Number(rawMarks) : null }) }} onSaved={onSaved}><label>Assessment title<input name="title" required autoFocus /></label><label>Weight percent<input name="weightPct" type="number" min="0.1" max="100" step="0.1" defaultValue="100" required /></label><label>Maximum marks<input name="maxMarks" type="number" min="0.1" step="0.1" defaultValue="100" required /></label><label>Marks obtained <span>(optional)</span><input name="obtainedMarks" type="number" min="0" step="0.1" /></label><button className="primary-action wide" type="submit">Save assessment</button></AsyncForm></Modal>
+function AssessmentModal({ client, spaceId, subject, assessment, onClose, onSaved }: { client: SupabaseClient; spaceId: string; subject: AcademicSubject; assessment: Assessment | null; onClose: () => void; onSaved: () => void }) {
+  return <Modal title={assessment ? `Edit marks for ${subject.name}` : `Add assessment to ${subject.name}`} onClose={onClose}><AsyncForm onSubmit={async (form) => { const rawMarks = String(form.get('obtainedMarks') ?? '').trim(); const input = { title: String(form.get('title') ?? ''), weightPct: Number(form.get('weightPct')), maxMarks: Number(form.get('maxMarks')), obtainedMarks: rawMarks ? Number(rawMarks) : null }; if (assessment) { if (!window.confirm('Save these assessment changes?')) return false; return updateAssessment(client, { id: assessment.id, ...input }) } return createAssessment(client, { spaceId, subjectId: subject.id, ...input }) }} onSaved={onSaved}><label>Assessment title<input name="title" defaultValue={assessment?.title} required autoFocus /></label><label>Weight percent<input name="weightPct" type="number" min="0.1" max="100" step="0.1" defaultValue={assessment?.weight_pct ?? 100} required /></label><label>Maximum marks<input name="maxMarks" type="number" min="0.1" step="0.1" defaultValue={assessment?.max_marks ?? 100} required /></label><label>Marks obtained <span>(optional)</span><input name="obtainedMarks" type="number" min="0" step="0.1" defaultValue={assessment?.obtained_marks ?? ''} /></label><button className="primary-action wide" type="submit">{assessment ? 'Save changes' : 'Save assessment'}</button></AsyncForm></Modal>
+}
+
+function SubjectEditModal({ client, subject, onClose, onSaved }: { client: SupabaseClient; subject: AcademicSubject; onClose: () => void; onSaved: () => void }) {
+  return <Modal title={`Edit ${subject.name}`} onClose={onClose}><AsyncForm onSubmit={async (form) => { if (!window.confirm('Save these subject changes?')) return false; return updateSubject(client, { id: subject.id, name: String(form.get('name')), credits: Number(form.get('credits')), attendanceTarget: Number(form.get('attendanceTarget')) }) }} onSaved={onSaved}><label>Subject name<input name="name" defaultValue={subject.name} required autoFocus /></label><label>Credits<input name="credits" type="number" min="0.5" step="0.5" defaultValue={subject.credits} required /></label><label>Attendance target<input name="attendanceTarget" type="number" min="1" max="100" step="1" defaultValue={subject.attendance_target ?? 75} required /></label><button className="primary-action wide" type="submit">Save changes</button></AsyncForm></Modal>
 }
 
 function SlotModal({ client, spaceId, subjects, slot, onClose, onSaved }: { client: SupabaseClient; spaceId: string; subjects: AcademicSubject[]; slot: TimetableSlot | null; onClose: () => void; onSaved: () => void }) {
   return <Modal title={slot ? 'Edit class' : 'Add class'} onClose={onClose}><AsyncForm onSubmit={async (form) => saveTimetableSlot(client, { id: slot?.id, spaceId, subjectId: String(form.get('subjectId')), day: Number(form.get('day')), startTime: String(form.get('startTime')), endTime: String(form.get('endTime')), room: String(form.get('room') ?? '') })} onSaved={onSaved}><label>Subject<select name="subjectId" required defaultValue={slot?.subject_id ?? subjects[0]?.id}>{subjects.map((subject) => <option value={subject.id} key={subject.id}>{subject.name}</option>)}</select></label><label>Day<select name="day" defaultValue={String(slot?.day_of_week ?? 1)}><option value="1">Monday</option><option value="2">Tuesday</option><option value="3">Wednesday</option><option value="4">Thursday</option><option value="5">Friday</option><option value="6">Saturday</option><option value="7">Sunday</option></select></label><label>Start time<input name="startTime" type="time" defaultValue={slot?.start_time.slice(0, 5)} required /></label><label>End time<input name="endTime" type="time" defaultValue={slot?.end_time.slice(0, 5)} required /></label><label>Room <span>(optional)</span><input name="room" defaultValue={slot?.room ?? ''} /></label><button className="primary-action wide" type="submit">{slot ? 'Save class' : 'Add class'}</button></AsyncForm></Modal>
 }
 
-function AsyncForm({ children, onSubmit, onSaved }: { children: React.ReactNode; onSubmit: (form: FormData) => Promise<void>; onSaved: () => void }) {
+function AsyncForm({ children, onSubmit, onSaved }: { children: React.ReactNode; onSubmit: (form: FormData) => Promise<void | false>; onSaved: () => void }) {
   const [error, setError] = useState<string | null>(null)
   const [pending, setPending] = useState(false)
-  async function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); setPending(true); setError(null); try { await onSubmit(new FormData(event.currentTarget)); onSaved() } catch (reason) { setError(reason instanceof Error ? reason.message : 'Could not save this change.') } finally { setPending(false) } }
+  async function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); setPending(true); setError(null); try { const result = await onSubmit(new FormData(event.currentTarget)); if (result !== false) onSaved() } catch (reason) { setError(reason instanceof Error ? reason.message : 'Could not save this change.') } finally { setPending(false) } }
   return <form className="modal-form" onSubmit={submit}>{children}{error && <p className="form-message">{error}</p>}{pending && <p className="saving-copy">Saving...</p>}</form>
 }
 

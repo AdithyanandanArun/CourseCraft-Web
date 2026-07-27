@@ -129,6 +129,16 @@ export async function createAssessment(
   if (error) throw error
 }
 
+export async function updateSubject(client: SupabaseClient, input: { id: string; name: string; credits: number; attendanceTarget: number }) {
+  const { error } = await client.from('subjects').update({ name: input.name.trim(), credits: input.credits, attendance_target: input.attendanceTarget }).eq('id', input.id)
+  if (error) throw error
+}
+
+export async function updateAssessment(client: SupabaseClient, input: { id: string; title: string; weightPct: number; maxMarks: number; obtainedMarks: number | null }) {
+  const { error } = await client.from('assessments').update({ title: input.title.trim(), weight_pct: input.weightPct, max_marks: input.maxMarks, obtained_marks: input.obtainedMarks }).eq('id', input.id)
+  if (error) throw error
+}
+
 export function subjectPercentage(subject: AcademicSubject): number | null {
   const completed = subject.assessments.filter((assessment) => assessment.obtained_marks !== null)
   const totalWeight = completed.reduce((sum, assessment) => sum + assessment.weight_pct, 0)
