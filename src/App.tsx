@@ -1,17 +1,23 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import type { Session, SupabaseClient, User } from '@supabase/supabase-js'
-import { BookOpen, GraduationCap, LogOut, Moon, Plus, RefreshCw, Sun, UserRoundPlus, X } from 'lucide-react'
+import { BookOpen, CalendarDays, Check, ClipboardCheck, GraduationCap, ImageUp, ListTodo, LogOut, Moon, NotebookPen, Plus, RefreshCw, Sun, UserRoundPlus, X } from 'lucide-react'
 
 import {
   createAssessment,
   createSemester,
   createSubject,
   ensureProfile,
+  importTimetable,
   loadAcademics,
+  loadPlanning,
+  recordAttendance,
+  savePlanningItem,
   subjectPercentage,
+  toggleHabit,
+  toggleTask,
   type AcademicSnapshot,
   type AcademicSubject,
-  type Profile,
+  type Profile, type PlanningSnapshot,
 } from './lib/coursecraft'
 import { calculateSgpa } from './lib/sgpa'
 import { supabase } from './lib/supabase'
@@ -141,7 +147,7 @@ function ProfileGate({ client, user }: { client: SupabaseClient; user: User }) {
 function StudentWorkspace({ client, profile }: { client: SupabaseClient; profile: Profile }) {
   const [snapshot, setSnapshot] = useState<AcademicSnapshot | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [modal, setModal] = useState<'semester' | 'subject' | 'assessment' | null>(null)
+  const [modal, setModal] = useState<'semester' | 'subject' | 'assessment' | 'timetable' | null>(null)
   const [assessmentSubject, setAssessmentSubject] = useState<AcademicSubject | null>(null)
 
   const load = () => {
@@ -195,11 +201,13 @@ function StudentWorkspace({ client, profile }: { client: SupabaseClient; profile
             </section>
             <aside className="next-section"><p className="eyebrow">NEXT ACTION</p><h2>Get a reliable projection.</h2><p className="aside-copy">Add each assessment's weighting and the marks you receive. CourseCraft will calculate a credit-weighted SGPA.</p><div className="advisor-callout"><UserRoundPlus size={19} /><div><strong>Advisor access is optional.</strong><p>Student workflows remain yours until you deliberately pair an advisor.</p></div></div></aside>
           </section>
+          <PlanningBoard client={client} spaceId={profile.space_id!} subjects={snapshot.subjects} onImport={() => setModal('timetable')} />
         </>
       )}
       {modal === 'semester' && <SemesterModal client={client} spaceId={profile.space_id!} onClose={() => setModal(null)} onSaved={() => { setModal(null); load() }} />}
       {modal === 'subject' && snapshot.semester && <SubjectModal client={client} spaceId={profile.space_id!} semesterId={snapshot.semester.id} onClose={() => setModal(null)} onSaved={() => { setModal(null); load() }} />}
       {modal === 'assessment' && assessmentSubject && <AssessmentModal client={client} spaceId={profile.space_id!} subject={assessmentSubject} onClose={() => setModal(null)} onSaved={() => { setModal(null); load() }} />}
+      {modal === 'timetable' && snapshot.semester && <TimetableImportModal client={client} spaceId={profile.space_id!} semesterId={snapshot.semester.id} onClose={() => setModal(null)} onSaved={() => { setModal(null); load() }} />}
     </main>
   )
 }
@@ -207,6 +215,62 @@ function StudentWorkspace({ client, profile }: { client: SupabaseClient; profile
 function SubjectRow({ subject, onAddAssessment }: { subject: AcademicSubject; onAddAssessment: () => void }) {
   const percentage = subjectPercentage(subject)
   return <article className="subject-row"><div className="subject-icon"><BookOpen size={18} /></div><div className="subject-detail"><h3>{subject.name}</h3><p>{subject.code ? `${subject.code} · ` : ''}{subject.credits} credits · {subject.assessments.length} assessment{subject.assessments.length === 1 ? '' : 's'}</p>{subject.assessments.map((assessment) => <small key={assessment.id}>{assessment.title}: {assessment.obtained_marks ?? '-'} / {assessment.max_marks} ({assessment.weight_pct}%)</small>)}</div><div className="grade"><strong>{percentage === null ? '---' : `${percentage.toFixed(0)}%`}</strong><button className="text-button" type="button" onClick={onAddAssessment}>Add marks</button></div></article>
+}
+
+const timetablePrompt = `Analyze the attached timetable image and convert it into JSON format.
+1. Group the data hierarchically by Subject.
+2. Ignore all teacher or professor names.
+3. Clean up subject names by removing any group, section, or batch designations. Combine schedules for the same base subject under a single subject entry.
+4. Ensure you use standard straight double quotes, not smart quotes.
+5. The output MUST be a valid JSON object matching this exact structure:
+{"subjects":[{"name":"Subject Name","schedules":[{"day":"Monday","classTimes":[{"startTime":"09:00 AM","endTime":"10:30 AM","roomNumber":"Room 101"}]}]}]}
+Return ONLY the raw JSON text. Do not wrap it in markdown blocks like \`\`\`json.`
+
+function PlanningBoard({ client, spaceId, subjects, onImport }: { client: SupabaseClient; spaceId: string; subjects: AcademicSubject[]; onImport: () => void }) {
+  const [data, setData] = useState<PlanningSnapshot | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const reload = () => { setError(null); void loadPlanning(client, spaceId).then(setData).catch((reason: unknown) => setError(reason instanceof Error ? reason.message : 'Could not load your planner.')) }
+  useEffect(reload, [client, spaceId])
+  const today = new Date().getDay() || 7
+  const todaySlots = data?.slots.filter((slot) => slot.day_of_week === today) ?? []
+  return <section className="planner-section" aria-labelledby="planning-heading">
+    <div className="section-heading"><div><p className="eyebrow">PHASE 2</p><h2 id="planning-heading">Academic planning</h2></div><button className="primary-action" type="button" onClick={onImport}><ImageUp size={18} /> Import timetable</button></div>
+    <p className="planner-intro">Turn an image timetable into structured classes with an AI model, then paste the JSON here. Attendance remains under your control.</p>
+    {error && <p className="form-message">{error}</p>}
+    {!data ? <div className="planner-loading">Loading planner...</div> : <div className="planner-grid">
+      <PlannerPanel icon={<CalendarDays size={18} />} title="Today’s timetable" action={<button className="text-button" type="button" onClick={onImport}>Import</button>}>
+        {todaySlots.length ? todaySlots.map((slot) => <div className="planner-row" key={slot.id}><strong>{slot.start_time.slice(0, 5)} - {slot.end_time.slice(0, 5)}</strong><span>{slot.subject?.name ?? 'Untitled class'}{slot.room ? ` · ${slot.room}` : ''}</span></div>) : <p className="empty-copy">No classes scheduled today.</p>}
+      </PlannerPanel>
+      <PlannerPanel icon={<ClipboardCheck size={18} />} title="Attendance">
+        {subjects.length ? subjects.map((subject) => { const history = data.attendance.filter((item) => item.subject_id === subject.id); const present = history.filter((item) => item.status === 'present').length; const rate = history.length ? Math.round(present / history.length * 100) : null; return <div className="attendance-row" key={subject.id}><div><strong>{subject.name}</strong><span>{rate === null ? 'No records' : `${rate}% · ${present}/${history.length} present`}</span></div><div><button className="mini-action positive" onClick={() => void recordAttendance(client, { spaceId, subjectId: subject.id, status: 'present' }).then(reload)}>Present</button><button className="mini-action danger" onClick={() => void recordAttendance(client, { spaceId, subjectId: subject.id, status: 'absent' }).then(reload)}>Absent</button></div></div> }) : <p className="empty-copy">Import a timetable or add subjects to record attendance.</p>}
+      </PlannerPanel>
+      <PlannerPanel icon={<ListTodo size={18} />} title="Tasks">
+        <QuickAdd placeholder="Add a task" onAdd={(title) => savePlanningItem(client, 'tasks', { space_id: spaceId, title })} onDone={reload} />
+        {data.tasks.map((task) => <label className="check-row" key={task.id}><input type="checkbox" checked={Boolean(task.done)} onChange={() => void toggleTask(client, task.id, !task.done).then(reload)} /><span>{task.title}</span></label>)}
+      </PlannerPanel>
+      <PlannerPanel icon={<Check size={18} />} title="Habits">
+        <QuickAdd placeholder="Add a daily habit" onAdd={(name) => savePlanningItem(client, 'habits', { space_id: spaceId, name })} onDone={reload} />
+        {data.habits.map((habit) => <label className="check-row" key={habit.id}><input type="checkbox" checked={habit.checkedToday} onChange={() => void toggleHabit(client, { id: habit.id, spaceId, checked: habit.checkedToday }).then(reload)} /><span>{habit.name}</span></label>)}
+      </PlannerPanel>
+      <PlannerPanel icon={<CalendarDays size={18} />} title="Calendar">
+        <QuickAdd placeholder="Add a calendar event" onAdd={(title) => savePlanningItem(client, 'events', { space_id: spaceId, title, type: 'college', start_at: new Date().toISOString() })} onDone={reload} />
+        {data.events.map((event) => <div className="planner-row" key={event.id}><strong>{new Date(event.start_at!).toLocaleDateString()}</strong><span>{event.title}</span></div>)}
+      </PlannerPanel>
+      <PlannerPanel icon={<NotebookPen size={18} />} title="Notes">
+        <QuickAdd placeholder="Write a quick note" onAdd={(body) => savePlanningItem(client, 'notes', { space_id: spaceId, body })} onDone={reload} />
+        {data.notes.map((note) => <p className="note-row" key={note.id}>{note.body}</p>)}
+      </PlannerPanel>
+    </div>}
+  </section>
+}
+
+function PlannerPanel({ icon, title, children, action }: { icon: React.ReactNode; title: string; children: React.ReactNode; action?: React.ReactNode }) { return <section className="planner-panel"><div className="planner-title"><span className="subject-icon">{icon}</span><h3>{title}</h3>{action}</div>{children}</section> }
+function QuickAdd({ placeholder, onAdd, onDone }: { placeholder: string; onAdd: (value: string) => Promise<void>; onDone: () => void }) { const [value, setValue] = useState(''); const [pending, setPending] = useState(false); return <form className="quick-add" onSubmit={(event) => { event.preventDefault(); if (!value.trim()) return; setPending(true); void onAdd(value.trim()).then(() => { setValue(''); onDone() }).finally(() => setPending(false)) }}><input aria-label={placeholder} value={value} placeholder={placeholder} onChange={(event) => setValue(event.target.value)} /><button className="mini-action" disabled={pending} type="submit"><Plus size={15} /></button></form> }
+
+function TimetableImportModal({ client, spaceId, semesterId, onClose, onSaved }: { client: SupabaseClient; spaceId: string; semesterId: string; onClose: () => void; onSaved: () => void }) {
+  const [json, setJson] = useState(''); const [copied, setCopied] = useState(false); const [error, setError] = useState<string | null>(null); const [pending, setPending] = useState(false)
+  async function submit() { setError(null); let timetable: unknown; try { timetable = JSON.parse(json) } catch { setError('Paste valid JSON only, without markdown fences.'); return } setPending(true); try { await importTimetable(client, { spaceId, semesterId, timetable }); onSaved() } catch (reason) { setError(reason instanceof Error ? reason.message : 'Could not import this timetable.') } finally { setPending(false) } }
+  return <Modal title="Import timetable from an image" onClose={onClose}><div className="import-steps"><p>1. Upload your timetable image to ChatGPT or another AI model.</p><p>2. Copy this prompt, then paste its raw JSON response below.</p><button className="text-button" type="button" onClick={() => void navigator.clipboard.writeText(timetablePrompt).then(() => setCopied(true))}>{copied ? 'Prompt copied' : 'Copy extraction prompt'}</button><label>Timetable JSON<textarea value={json} onChange={(event) => setJson(event.target.value)} placeholder='{"subjects":[...]}' rows={10} /></label>{error && <p className="form-message">{error}</p>}<button className="primary-action wide" type="button" disabled={pending} onClick={() => void submit()}>{pending ? 'Importing...' : 'Create timetable and subjects'}</button></div></Modal>
 }
 
 function EmptySemester({ onCreate }: { onCreate: () => void }) {
