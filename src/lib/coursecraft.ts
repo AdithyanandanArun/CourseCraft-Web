@@ -26,6 +26,7 @@ export type AcademicSubject = {
   name: string
   code: string | null
   credits: number
+  attendance_target?: number
   assessments: Assessment[]
 }
 
@@ -34,7 +35,7 @@ export type AcademicSnapshot = {
   subjects: AcademicSubject[]
 }
 
-export type TimetableSlot = { id: string; day_of_week: number; start_time: string; end_time: string; room: string | null; subject: { name: string } | null }
+export type TimetableSlot = { id: string; day_of_week: number; start_time: string; end_time: string; room: string | null; subject_id: string | null; subject: { name: string } | null }
 export type Attendance = { id: string; subject_id: string; date: string; status: 'present' | 'absent' | 'cancelled' }
 export type PlannerItem = { id: string; title: string; due_at?: string | null; start_at?: string; done?: boolean; priority?: 'low' | 'normal' | 'high'; type?: string }
 export type Habit = { id: string; name: string; checkedToday: boolean }
@@ -61,7 +62,7 @@ export async function loadAcademics(client: SupabaseClient, spaceId: string): Pr
 
   const { data: subjects, error: subjectsError } = await client
     .from('subjects')
-    .select('id, name, code, credits')
+    .select('id, name, code, credits, attendance_target')
     .eq('semester_id', semester.id)
     .order('created_at')
   if (subjectsError) throw subjectsError
@@ -100,7 +101,7 @@ export async function createSemester(client: SupabaseClient, spaceId: string, na
 
 export async function createSubject(
   client: SupabaseClient,
-  input: { spaceId: string; semesterId: string; name: string; code: string; credits: number },
+  input: { spaceId: string; semesterId: string; name: string; code: string; credits: number; attendanceTarget?: number },
 ) {
   const { error } = await client.from('subjects').insert({
     space_id: input.spaceId,
@@ -108,6 +109,7 @@ export async function createSubject(
     name: input.name.trim(),
     code: input.code.trim() || null,
     credits: input.credits,
+    attendance_target: input.attendanceTarget ?? 75,
   })
   if (error) throw error
 }
@@ -142,7 +144,7 @@ export function subjectPercentage(subject: AcademicSubject): number | null {
 export async function loadPlanning(client: SupabaseClient, spaceId: string): Promise<PlanningSnapshot> {
   const today = new Date().toISOString().slice(0, 10)
   const [slots, attendance, events, tasks, habits, checkins, notes] = await Promise.all([
-    client.from('timetable_slots').select('id, day_of_week, start_time, end_time, room, subject:subjects(name)').eq('space_id', spaceId).order('day_of_week').order('start_time'),
+    client.from('timetable_slots').select('id, day_of_week, start_time, end_time, room, subject_id, subject:subjects(name)').eq('space_id', spaceId).order('day_of_week').order('start_time'),
     client.from('attendance').select('id, subject_id, date, status').eq('space_id', spaceId).order('date', { ascending: false }),
     client.from('events').select('id, title, start_at, type').eq('space_id', spaceId).gte('start_at', new Date().toISOString()).order('start_at').limit(8),
     client.from('tasks').select('id, title, due_at, done, priority').eq('space_id', spaceId).order('done').order('due_at').limit(12),
@@ -189,3 +191,14 @@ export async function recordAttendance(client: SupabaseClient, input: { spaceId:
   const { error } = await client.from('attendance').upsert({ space_id: input.spaceId, subject_id: input.subjectId, date: new Date().toISOString().slice(0, 10), status: input.status }, { onConflict: 'subject_id,date' })
   if (error) throw error
 }
+export async function recordAttendanceForDate(client: SupabaseClient, input: { spaceId: string; subjectId: string; date: string; status: 'present' | 'absent' | 'cancelled' }) {
+  const { error } = await client.from('attendance').upsert({ space_id: input.spaceId, subject_id: input.subjectId, date: input.date, status: input.status }, { onConflict: 'subject_id,date' })
+  if (error) throw error
+}
+export async function updateSubjectAttendanceTarget(client: SupabaseClient, id: string, attendanceTarget: number) { const { error } = await client.from('subjects').update({ attendance_target: attendanceTarget }).eq('id', id); if (error) throw error }
+export async function saveTimetableSlot(client: SupabaseClient, input: { id?: string; spaceId: string; subjectId: string; day: number; startTime: string; endTime: string; room: string }) {
+  const row = { space_id: input.spaceId, subject_id: input.subjectId, day_of_week: input.day, start_time: input.startTime, end_time: input.endTime, room: input.room.trim() || null }
+  const { error } = input.id ? await client.from('timetable_slots').update(row).eq('id', input.id) : await client.from('timetable_slots').insert(row)
+  if (error) throw error
+}
+export async function deleteTimetableSlot(client: SupabaseClient, id: string) { const { error } = await client.from('timetable_slots').delete().eq('id', id); if (error) throw error }
