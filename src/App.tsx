@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import type { Session, SupabaseClient, User } from '@supabase/supabase-js'
-import { BookOpen, CalendarDays, Check, ClipboardCheck, GraduationCap, ImageUp, ListTodo, LogOut, Moon, NotebookPen, Plus, RefreshCw, Sun, UserRoundPlus, X } from 'lucide-react'
+import { BookOpen, CalendarDays, Check, ClipboardCheck, GraduationCap, ImageUp, ListTodo, LogOut, Moon, NotebookPen, Paperclip, Plus, RefreshCw, Sun, UserRoundPlus, X } from 'lucide-react'
 
 import {
   createAssessment,
@@ -231,6 +231,7 @@ function PlanningBoard({ client, spaceId, subjects, onImport }: { client: Supaba
   const [error, setError] = useState<string | null>(null)
   const reload = () => { setError(null); void loadPlanning(client, spaceId).then(setData).catch((reason: unknown) => setError(reason instanceof Error ? reason.message : 'Could not load your planner.')) }
   useEffect(reload, [client, spaceId])
+  useEffect(() => { const channel = client.channel(`planning-${spaceId}`).on('postgres_changes', { event: '*', schema: 'public', filter: `space_id=eq.${spaceId}` }, reload).subscribe(); return () => { void client.removeChannel(channel) } }, [client, spaceId])
   const today = new Date().getDay() || 7
   const todaySlots = data?.slots.filter((slot) => slot.day_of_week === today) ?? []
   return <section className="planner-section" aria-labelledby="planning-heading">
@@ -258,6 +259,7 @@ function PlanningBoard({ client, spaceId, subjects, onImport }: { client: Supaba
       </PlannerPanel>
       <PlannerPanel icon={<NotebookPen size={18} />} title="Notes">
         <QuickAdd placeholder="Write a quick note" onAdd={(body) => savePlanningItem(client, 'notes', { space_id: spaceId, body })} onDone={reload} />
+        <AttachmentUpload client={client} spaceId={spaceId} onDone={reload} />
         {data.notes.map((note) => <p className="note-row" key={note.id}>{note.body}</p>)}
       </PlannerPanel>
     </div>}
@@ -266,6 +268,7 @@ function PlanningBoard({ client, spaceId, subjects, onImport }: { client: Supaba
 
 function PlannerPanel({ icon, title, children, action }: { icon: React.ReactNode; title: string; children: React.ReactNode; action?: React.ReactNode }) { return <section className="planner-panel"><div className="planner-title"><span className="subject-icon">{icon}</span><h3>{title}</h3>{action}</div>{children}</section> }
 function QuickAdd({ placeholder, onAdd, onDone }: { placeholder: string; onAdd: (value: string) => Promise<void>; onDone: () => void }) { const [value, setValue] = useState(''); const [pending, setPending] = useState(false); return <form className="quick-add" onSubmit={(event) => { event.preventDefault(); if (!value.trim()) return; setPending(true); void onAdd(value.trim()).then(() => { setValue(''); onDone() }).finally(() => setPending(false)) }}><input aria-label={placeholder} value={value} placeholder={placeholder} onChange={(event) => setValue(event.target.value)} /><button className="mini-action" disabled={pending} type="submit"><Plus size={15} /></button></form> }
+function AttachmentUpload({ client, spaceId, onDone }: { client: SupabaseClient; spaceId: string; onDone: () => void }) { const [message, setMessage] = useState(''); async function upload(file: File) { setMessage('Uploading...'); const { data: { user } } = await client.auth.getUser(); if (!user) throw new Error('Your session has expired.'); const path = `${spaceId}/${crypto.randomUUID()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, '-')}`; const { error: storageError } = await client.storage.from('attachments').upload(path, file, { contentType: file.type, upsert: false }); if (storageError) throw storageError; const { error } = await client.from('attachments').insert({ space_id: spaceId, bucket_path: path, caption: file.name, linked_type: 'note', uploaded_by: user.id }); if (error) throw error; setMessage('Image attached.'); onDone() } return <><label className="attachment-button"><Paperclip size={15} /> Attach image<input type="file" accept="image/*" onChange={(event) => { const file = event.target.files?.[0]; if (file) void upload(file).catch((reason) => setMessage(reason instanceof Error ? reason.message : 'Upload failed.')) }} /></label>{message && <p className="attachment-message">{message}</p>}</> }
 
 function TimetableImportModal({ client, spaceId, semesterId, onClose, onSaved }: { client: SupabaseClient; spaceId: string; semesterId: string; onClose: () => void; onSaved: () => void }) {
   const [json, setJson] = useState(''); const [copied, setCopied] = useState(false); const [error, setError] = useState<string | null>(null); const [pending, setPending] = useState(false)
