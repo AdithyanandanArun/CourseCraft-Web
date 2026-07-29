@@ -37,10 +37,11 @@ export type AcademicSnapshot = {
 
 export type TimetableSlot = { id: string; day_of_week: number; start_time: string; end_time: string; room: string | null; subject_id: string | null; subject: { name: string } | null }
 export type Attendance = { id: string; subject_id: string; date: string; status: 'present' | 'absent' | 'cancelled' }
+export type AttendanceAdjustment = { subject_id: string; attended_count: number; missed_count: number }
 export type PlannerItem = { id: string; title: string; due_at?: string | null; start_at?: string; done?: boolean; priority?: 'low' | 'normal' | 'high'; type?: string }
 export type Habit = { id: string; name: string; checkedToday: boolean }
 export type Note = { id: string; body: string; created_at: string }
-export type PlanningSnapshot = { slots: TimetableSlot[]; attendance: Attendance[]; events: PlannerItem[]; tasks: PlannerItem[]; habits: Habit[]; notes: Note[] }
+export type PlanningSnapshot = { slots: TimetableSlot[]; attendance: Attendance[]; adjustments: AttendanceAdjustment[]; events: PlannerItem[]; tasks: PlannerItem[]; habits: Habit[]; notes: Note[] }
 
 export async function ensureProfile(client: SupabaseClient): Promise<Profile> {
   const { data, error } = await client.rpc('ensure_my_profile')
@@ -153,18 +154,19 @@ export function subjectPercentage(subject: AcademicSubject): number | null {
 
 export async function loadPlanning(client: SupabaseClient, spaceId: string): Promise<PlanningSnapshot> {
   const today = new Date().toISOString().slice(0, 10)
-  const [slots, attendance, events, tasks, habits, checkins, notes] = await Promise.all([
+  const [slots, attendance, adjustments, events, tasks, habits, checkins, notes] = await Promise.all([
     client.from('timetable_slots').select('id, day_of_week, start_time, end_time, room, subject_id, subject:subjects(name)').eq('space_id', spaceId).order('day_of_week').order('start_time'),
     client.from('attendance').select('id, subject_id, date, status').eq('space_id', spaceId).order('date', { ascending: false }),
+    client.from('attendance_adjustments').select('subject_id, attended_count, missed_count').eq('space_id', spaceId),
     client.from('events').select('id, title, start_at, type').eq('space_id', spaceId).gte('start_at', new Date().toISOString()).order('start_at').limit(8),
     client.from('tasks').select('id, title, due_at, done, priority').eq('space_id', spaceId).order('done').order('due_at').limit(12),
     client.from('habits').select('id, name').eq('space_id', spaceId).order('created_at'),
     client.from('habit_checkins').select('habit_id').eq('space_id', spaceId).eq('date', today),
     client.from('notes').select('id, body, created_at').eq('space_id', spaceId).order('created_at', { ascending: false }).limit(8),
   ])
-  for (const result of [slots, attendance, events, tasks, habits, checkins, notes]) if (result.error) throw result.error
+  for (const result of [slots, attendance, adjustments, events, tasks, habits, checkins, notes]) if (result.error) throw result.error
   const checked = new Set((checkins.data ?? []).map((item) => item.habit_id))
-  return { slots: (slots.data ?? []) as unknown as TimetableSlot[], attendance: (attendance.data ?? []) as Attendance[], events: (events.data ?? []) as PlannerItem[], tasks: (tasks.data ?? []) as PlannerItem[], habits: (habits.data ?? []).map((habit) => ({ ...habit, checkedToday: checked.has(habit.id) })), notes: (notes.data ?? []) as Note[] }
+  return { slots: (slots.data ?? []) as unknown as TimetableSlot[], attendance: (attendance.data ?? []) as Attendance[], adjustments: (adjustments.data ?? []) as AttendanceAdjustment[], events: (events.data ?? []) as PlannerItem[], tasks: (tasks.data ?? []) as PlannerItem[], habits: (habits.data ?? []).map((habit) => ({ ...habit, checkedToday: checked.has(habit.id) })), notes: (notes.data ?? []) as Note[] }
 }
 
 export async function importTimetable(client: SupabaseClient, input: { spaceId: string; semesterId: string; timetable: unknown }) {
@@ -199,6 +201,10 @@ export async function toggleHabit(client: SupabaseClient, input: { id: string; s
 }
 export async function recordAttendance(client: SupabaseClient, input: { spaceId: string; subjectId: string; status: 'present' | 'absent' }) {
   const { error } = await client.from('attendance').upsert({ space_id: input.spaceId, subject_id: input.subjectId, date: new Date().toISOString().slice(0, 10), status: input.status }, { onConflict: 'subject_id,date' })
+  if (error) throw error
+}
+export async function adjustAttendance(client: SupabaseClient, input: { spaceId: string; subjectId: string; status: 'present' | 'absent'; delta: -1 | 1 }) {
+  const { error } = await client.rpc('adjust_attendance', { p_space_id: input.spaceId, p_subject_id: input.subjectId, p_status: input.status, p_delta: input.delta })
   if (error) throw error
 }
 export async function recordAttendanceForDate(client: SupabaseClient, input: { spaceId: string; subjectId: string; date: string; status: 'present' | 'absent' | 'cancelled' }) {
