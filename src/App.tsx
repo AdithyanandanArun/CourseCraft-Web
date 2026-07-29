@@ -1,18 +1,18 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useState, type CSSProperties, type FormEvent } from 'react'
 import type { Session, SupabaseClient, User } from '@supabase/supabase-js'
-import { BookOpen, CalendarDays, Check, CheckCircle2, ChevronLeft, ChevronRight, ClipboardCheck, GraduationCap, ImageUp, LayoutDashboard, ListTodo, LogOut, Moon, NotebookPen, Paperclip, Pencil, Plus, RefreshCw, Settings, Sun, Table2, Trash2, X } from 'lucide-react'
+import { BookOpen, CalendarDays, Check, CheckCircle2, ChevronLeft, ChevronRight, ClipboardCheck, GraduationCap, ImageUp, LayoutDashboard, ListTodo, LogOut, Minus, Moon, NotebookPen, Paperclip, Pencil, Plus, RefreshCw, Settings, Sun, Table2, Trash2, X } from 'lucide-react'
 
 import {
   createAssessment,
   createSemester,
   createSubject,
+  adjustAttendance,
   deleteTimetable,
   deleteTimetableSlot,
   ensureProfile,
   importTimetable,
   loadAcademics,
   loadPlanning,
-  recordAttendance,
   recordAttendanceForDate,
   savePlanningItem,
   subjectPercentage,
@@ -290,11 +290,24 @@ Return ONLY the raw JSON text. Do not wrap it in markdown blocks like \`\`\`json
 function PlanningBoard({ client, spaceId, semesterId, subjects }: { client: SupabaseClient; spaceId: string; semesterId: string; subjects: AcademicSubject[] }) {
   const [data, setData] = useState<PlanningSnapshot | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [pendingSubjectId, setPendingSubjectId] = useState<string | null>(null)
   const reload = () => { setError(null); void loadPlanning(client, spaceId).then(setData).catch((reason: unknown) => setError(reason instanceof Error ? reason.message : 'Could not load your planner.')) }
   useEffect(reload, [client, spaceId])
   useEffect(() => { const channel = client.channel(`planning-${spaceId}`).on('postgres_changes', { event: '*', schema: 'public', filter: `space_id=eq.${spaceId}` }, reload).subscribe(); return () => { void client.removeChannel(channel) } }, [client, spaceId])
   const today = new Date().getDay() || 7
   const todaySlots = data?.slots.filter((slot) => slot.day_of_week === today) ?? []
+  async function updateAttendance(subjectId: string, status: 'present' | 'absent', delta: -1 | 1) {
+    setPendingSubjectId(subjectId)
+    setError(null)
+    try {
+      await adjustAttendance(client, { spaceId, subjectId, status, delta })
+      reload()
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Could not update attendance.')
+    } finally {
+      setPendingSubjectId(null)
+    }
+  }
   return <section className="planner-section" aria-labelledby="planning-heading">
     <div className="section-heading"><div><p className="eyebrow">PHASE 2</p><h2 id="planning-heading">Academic planning</h2></div></div>
     <p className="planner-intro">Turn an image timetable into structured classes with an AI model, then paste the JSON here. Attendance remains under your control.</p>
@@ -304,7 +317,7 @@ function PlanningBoard({ client, spaceId, semesterId, subjects }: { client: Supa
         {todaySlots.length ? todaySlots.map((slot) => <div className="planner-row" key={slot.id}><strong>{slot.start_time.slice(0, 5)} - {slot.end_time.slice(0, 5)}</strong><span>{slot.subject?.name ?? 'Untitled class'}{slot.room ? ` · ${slot.room}` : ''}</span></div>) : <p className="empty-copy">No classes scheduled today.</p>}
       </PlannerPanel>
       <PlannerPanel icon={<ClipboardCheck size={18} />} title="Attendance">
-        {subjects.length ? subjects.map((subject) => { const history = data.attendance.filter((item) => item.subject_id === subject.id); const present = history.filter((item) => item.status === 'present').length; const rate = history.length ? Math.round(present / history.length * 100) : null; return <div className="attendance-row" key={subject.id}><div><strong>{subject.name}</strong><span>{rate === null ? 'No records' : `${rate}% · ${present}/${history.length} present`}</span></div><div><button className="mini-action positive" onClick={() => void recordAttendance(client, { spaceId, subjectId: subject.id, status: 'present' }).then(reload)}>Present</button><button className="mini-action danger" onClick={() => void recordAttendance(client, { spaceId, subjectId: subject.id, status: 'absent' }).then(reload)}>Absent</button></div></div> }) : <p className="empty-copy">Import a timetable or add subjects to record attendance.</p>}
+        {subjects.length ? <div className="attendance-card-list">{subjects.map((subject) => <AttendanceCard key={subject.id} subject={subject} data={data} pending={pendingSubjectId === subject.id} onAdjust={(status, delta) => void updateAttendance(subject.id, status, delta)} />)}</div> : <p className="empty-copy">Import a timetable or add subjects to record attendance.</p>}
       </PlannerPanel>
       <PlannerPanel icon={<ListTodo size={18} />} title="Tasks">
         <QuickAdd placeholder="Add a task" onAdd={(title) => savePlanningItem(client, 'tasks', { space_id: spaceId, title })} onDone={reload} />
@@ -325,6 +338,33 @@ function PlanningBoard({ client, spaceId, semesterId, subjects }: { client: Supa
       </PlannerPanel>
     </div>}
   </section>
+}
+
+function AttendanceCard({ subject, data, pending, onAdjust }: { subject: AcademicSubject; data: PlanningSnapshot; pending: boolean; onAdjust: (status: 'present' | 'absent', delta: -1 | 1) => void }) {
+  const history = data.attendance.filter((item) => item.subject_id === subject.id)
+  const adjustment = data.adjustments.find((item) => item.subject_id === subject.id)
+  const attended = history.filter((item) => item.status === 'present').length + (adjustment?.attended_count ?? 0)
+  const missed = history.filter((item) => item.status === 'absent').length + (adjustment?.missed_count ?? 0)
+  const total = attended + missed
+  const rate = total ? Math.round(attended / total * 100) : 0
+  const target = subject.attendance_target ?? 75
+  const tone = total === 0 ? 'neutral' : rate >= target ? 'good' : rate >= target - 10 ? 'warning' : 'risk'
+  const status = total === 0 ? 'No classes logged' : tone === 'good' ? 'On track' : tone === 'warning' ? 'Near target' : 'Below target'
+  return <article className={`attendance-card attendance-card-${tone}`} aria-label={`${subject.name}: ${attended} attended, ${missed} missed, ${total} total, ${total ? `${rate}%` : 'no attendance recorded'}`}>
+    <div className="attendance-card-heading"><div><h3>{subject.name}</h3><p>{status} · target {target}%</p></div><span className="attendance-status">{status}</span></div>
+    <div className="attendance-card-body">
+      <div className="attendance-counts"><div><strong>{attended}</strong><span>Attended</span></div><div><strong>{missed}</strong><span>Missed</span></div><div><strong>{total}</strong><span>Total</span></div></div>
+      <div className="attendance-ring" style={{ '--attendance-progress': `${rate}%` } as CSSProperties}><div><strong>{total ? `${rate}%` : '---'}</strong><span>attendance</span></div></div>
+    </div>
+    <div className="attendance-adjusters">
+      <AttendanceAdjuster label="Attended" count={attended} tone="positive" disabled={pending} onDecrease={() => onAdjust('present', -1)} onIncrease={() => onAdjust('present', 1)} />
+      <AttendanceAdjuster label="Missed" count={missed} tone="danger" disabled={pending} onDecrease={() => onAdjust('absent', -1)} onIncrease={() => onAdjust('absent', 1)} />
+    </div>
+  </article>
+}
+
+function AttendanceAdjuster({ label, count, tone, disabled, onDecrease, onIncrease }: { label: string; count: number; tone: 'positive' | 'danger'; disabled: boolean; onDecrease: () => void; onIncrease: () => void }) {
+  return <div className={`attendance-adjuster ${tone}`}><span>{label} <strong>{count}</strong></span><div><button type="button" disabled={disabled || count === 0} aria-label={`Reduce ${label.toLowerCase()} classes`} title={`Reduce ${label.toLowerCase()} classes`} onClick={onDecrease}><Minus size={18} /></button><button type="button" disabled={disabled} aria-label={`Add ${label.toLowerCase()} class`} title={`Add ${label.toLowerCase()} class`} onClick={onIncrease}><Plus size={18} /></button></div></div>
 }
 
 function PlannerPanel({ icon, title, children, action }: { icon: React.ReactNode; title: string; children: React.ReactNode; action?: React.ReactNode }) { return <section className="planner-panel"><div className="planner-title"><span className="subject-icon">{icon}</span><h3>{title}</h3>{action}</div>{children}</section> }
