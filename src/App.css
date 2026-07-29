@@ -103,6 +103,7 @@ select { width: 100%; min-height: 48px; border: 0; border-radius: 16px; padding:
 .role-picker button:active { transform: translateY(1px); box-shadow: var(--inset); }
 .form-message { margin: 0; padding: 12px 14px; border-radius: 14px; color: var(--danger); background: rgb(178 59 75 / .09); line-height: 1.45; }
 .auth-switch { justify-self: center; margin-top: 2px; }
+.forgot-password { justify-self: end; min-height: 36px; margin: -5px 0 0; }
 .modal-backdrop { position: fixed; z-index: 10; inset: 0; display: grid; place-items: center; padding: 20px; background: rgb(10 14 20 / .42); backdrop-filter: blur(5px); }
 .modal { width: min(100%, 500px); max-height: calc(100svh - 40px); overflow: auto; padding: 30px; border-radius: 32px; background: var(--surface); box-shadow: 18px 18px 35px rgb(86 99 119 / .42), -12px -12px 30px rgb(255 255 255 / .55); }
 .modal-heading { display: flex; align-items: start; justify-content: space-between; gap: 16px; margin-bottom: 24px; }

@@ -26,7 +26,7 @@ import {
   type Assessment, type Profile, type PlanningSnapshot, type TimetableSlot,
 } from './lib/coursecraft'
 import { calculateSgpa } from './lib/sgpa'
-import { emailConfirmationCallback, supabase } from './lib/supabase'
+import { authCallbackType, supabase, type AuthCallbackType } from './lib/supabase'
 import './App.css'
 
 const authRedirectUrl = 'https://adithyanandanarun.github.io/CourseCraft-Web/'
@@ -60,21 +60,33 @@ function ConfigurationScreen() {
 
 function AuthenticatedApp({ client }: { client: SupabaseClient }) {
   const [session, setSession] = useState<Session | null | undefined>(undefined)
-  const [showEmailConfirmation, setShowEmailConfirmation] = useState(emailConfirmationCallback)
+  const [authCallback, setAuthCallback] = useState<AuthCallbackType>(authCallbackType)
+  const [recoveryReady, setRecoveryReady] = useState(false)
 
   useEffect(() => {
-    if (showEmailConfirmation) {
+    if (authCallback === 'signup') {
       window.history.replaceState({}, document.title, window.location.pathname)
       void client.auth.signOut()
       return
+    }
+    if (authCallback === 'recovery') {
+      const markRecoveryReady = (nextSession: Session | null) => {
+        if (!nextSession) return
+        window.history.replaceState({}, document.title, window.location.pathname)
+        setRecoveryReady(true)
+      }
+      void client.auth.getSession().then(({ data }) => markRecoveryReady(data.session))
+      const { data: subscription } = client.auth.onAuthStateChange((_event, nextSession) => markRecoveryReady(nextSession))
+      return () => subscription.subscription.unsubscribe()
     }
 
     void client.auth.getSession().then(({ data }) => setSession(data.session))
     const { data: subscription } = client.auth.onAuthStateChange((_event, nextSession) => setSession(nextSession))
     return () => subscription.subscription.unsubscribe()
-  }, [client, showEmailConfirmation])
+  }, [authCallback, client])
 
-  if (showEmailConfirmation) return <EmailConfirmedScreen onLogin={() => setShowEmailConfirmation(false)} />
+  if (authCallback === 'signup') return <EmailConfirmedScreen onLogin={() => setAuthCallback(null)} />
+  if (authCallback === 'recovery') return <PasswordResetScreen client={client} ready={recoveryReady} onDone={() => { setSession(null); setAuthCallback(null) }} />
   if (session === undefined) return <LoadingScreen />
   if (!session) return <AuthScreen client={client} />
   return <ProfileGate client={client} user={session.user} />
@@ -95,8 +107,32 @@ function EmailConfirmedScreen({ onLogin }: { onLogin: () => void }) {
   )
 }
 
+function PasswordResetScreen({ client, ready, onDone }: { client: SupabaseClient; ready: boolean; onDone: () => void }) {
+  const [message, setMessage] = useState<string | null>(null)
+  const [pending, setPending] = useState(false)
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const password = String(new FormData(event.currentTarget).get('password') ?? '')
+    if (password.length < 8) { setMessage('Use at least 8 characters.'); return }
+    setPending(true)
+    setMessage(null)
+    try {
+      const { error } = await client.auth.updateUser({ password })
+      if (error) throw error
+      await client.auth.signOut()
+      onDone()
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Unable to update your password. Request a new reset email and try again.')
+    } finally {
+      setPending(false)
+    }
+  }
+  return <main className="auth-layout"><form className="auth-panel" onSubmit={submit}><Brand /><p className="eyebrow">PASSWORD RESET</p><h1>Choose a new password.</h1><p>Your new password must be at least 8 characters.</p><label>New password<input name="password" type="password" minLength={8} autoComplete="new-password" required disabled={!ready || pending} /></label>{message && <p className="form-message">{message}</p>}<button className="primary-action wide" type="submit" disabled={!ready || pending}>{pending ? 'Saving...' : ready ? 'Save new password' : 'Preparing secure reset...'}</button></form></main>
+}
+
 function AuthScreen({ client }: { client: SupabaseClient }) {
   const [signUp, setSignUp] = useState(false)
+  const [forgotPassword, setForgotPassword] = useState(false)
   const [role, setRole] = useState<'student' | 'advisor'>('student')
   const [message, setMessage] = useState<string | null>(null)
   const [pending, setPending] = useState(false)
@@ -129,6 +165,24 @@ function AuthScreen({ client }: { client: SupabaseClient }) {
     }
   }
 
+  async function requestPasswordReset(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const email = String(new FormData(event.currentTarget).get('email') ?? '').trim()
+    setMessage(null)
+    setPending(true)
+    try {
+      const { error } = await client.auth.resetPasswordForEmail(email, { redirectTo: authRedirectUrl })
+      if (error) throw error
+      setMessage('If an account exists for this email, a reset link is on its way.')
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Unable to send a reset email. Please try again.')
+    } finally {
+      setPending(false)
+    }
+  }
+
+  if (forgotPassword) return <main className="auth-layout"><form className="auth-panel" onSubmit={requestPasswordReset}><Brand /><p className="eyebrow">PASSWORD RESET</p><h1>Reset your password.</h1><p>Enter your email and we will send a secure reset link.</p><label>Email<input name="email" type="email" required autoComplete="email" /></label>{message && <p className="form-message">{message}</p>}<button className="primary-action wide" disabled={pending} type="submit">{pending ? 'Sending...' : 'Send reset link'}</button><button className="text-button auth-switch" type="button" disabled={pending} onClick={() => { setForgotPassword(false); setMessage(null) }}>Back to sign in</button></form></main>
+
   return (
     <main className="auth-layout">
       <form className="auth-panel" onSubmit={submit}>
@@ -145,10 +199,11 @@ function AuthScreen({ client }: { client: SupabaseClient }) {
         </>}
         <label>Email<input name="email" type="email" required autoComplete="email" /></label>
         <label>Password<input name="password" type="password" required minLength={8} autoComplete={signUp ? 'new-password' : 'current-password'} /></label>
+        {!signUp && <button className="text-button forgot-password" type="button" disabled={pending} onClick={() => { setForgotPassword(true); setMessage(null) }}>Forgot password?</button>}
         {message && <p className="form-message">{message}</p>}
         <button className="primary-action wide" disabled={pending} type="submit">{pending ? 'Please wait...' : signUp ? 'Create account' : 'Sign in'}</button>
         <button className="text-button auth-switch" type="button" disabled={pending} onClick={() => { setSignUp(!signUp); setMessage(null) }}>
-          {signUp ? 'Already have an account? Sign in' : 'New to CourseCraft? Create an account'}
+          {signUp ? 'Already have an account? Sign in' : 'Create a new account'}
         </button>
       </form>
     </main>
