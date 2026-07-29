@@ -89,6 +89,8 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid 
 .auth-panel { width: min(100%, 500px); display: grid; gap: 17px; padding: 38px; border-radius: 32px; background: var(--surface); box-shadow: var(--raised); }
 .auth-panel .brand { margin-bottom: 18px; }
 .auth-panel > p:not(.eyebrow):not(.form-message) { color: var(--muted); line-height: 1.65; }
+.confirmation-panel { gap: 14px; }
+.confirmation-icon { width: 58px; height: 58px; display: grid; place-items: center; border-radius: 18px; color: var(--positive); background: var(--surface); box-shadow: var(--inset); }
 label { display: grid; gap: 8px; color: var(--ink); font-size: 14px; font-weight: 700; }
 label span { color: var(--muted); font-weight: 400; }
 input { width: 100%; min-height: 48px; border: 0; border-radius: 16px; padding: 12px 14px; color: var(--ink); background: var(--surface); box-shadow: var(--inset); transition: box-shadow .3s ease-out; }

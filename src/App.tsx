@@ -26,7 +26,7 @@ import {
   type Assessment, type Profile, type PlanningSnapshot, type TimetableSlot,
 } from './lib/coursecraft'
 import { calculateSgpa } from './lib/sgpa'
-import { supabase } from './lib/supabase'
+import { emailConfirmationCallback, supabase } from './lib/supabase'
 import './App.css'
 
 const authRedirectUrl = 'https://adithyanandanarun.github.io/CourseCraft-Web/'
@@ -60,16 +60,39 @@ function ConfigurationScreen() {
 
 function AuthenticatedApp({ client }: { client: SupabaseClient }) {
   const [session, setSession] = useState<Session | null | undefined>(undefined)
+  const [showEmailConfirmation, setShowEmailConfirmation] = useState(emailConfirmationCallback)
 
   useEffect(() => {
+    if (showEmailConfirmation) {
+      window.history.replaceState({}, document.title, window.location.pathname)
+      void client.auth.signOut()
+      return
+    }
+
     void client.auth.getSession().then(({ data }) => setSession(data.session))
     const { data: subscription } = client.auth.onAuthStateChange((_event, nextSession) => setSession(nextSession))
     return () => subscription.subscription.unsubscribe()
-  }, [client])
+  }, [client, showEmailConfirmation])
 
+  if (showEmailConfirmation) return <EmailConfirmedScreen onLogin={() => setShowEmailConfirmation(false)} />
   if (session === undefined) return <LoadingScreen />
   if (!session) return <AuthScreen client={client} />
   return <ProfileGate client={client} user={session.user} />
+}
+
+function EmailConfirmedScreen({ onLogin }: { onLogin: () => void }) {
+  return (
+    <main className="auth-layout">
+      <section className="auth-panel confirmation-panel">
+        <Brand />
+        <div className="confirmation-icon" aria-hidden="true"><CheckCircle2 size={28} /></div>
+        <p className="eyebrow">EMAIL CONFIRMED</p>
+        <h1>Your email is confirmed.</h1>
+        <p>You can now sign in to open your CourseCraft workspace.</p>
+        <button className="primary-action wide" type="button" onClick={onLogin}>Log in</button>
+      </section>
+    </main>
+  )
 }
 
 function AuthScreen({ client }: { client: SupabaseClient }) {
