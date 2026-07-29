@@ -29,6 +29,8 @@ import { calculateSgpa } from './lib/sgpa'
 import { supabase } from './lib/supabase'
 import './App.css'
 
+const authRedirectUrl = 'https://adithyanandanarun.github.io/CourseCraft-Web/'
+
 function App() {
   const [dark, setDark] = useState(() => localStorage.getItem('coursecraft-theme') === 'dark')
 
@@ -89,7 +91,7 @@ function AuthScreen({ client }: { client: SupabaseClient }) {
         const { data, error } = await client.auth.signUp({
           email,
           password,
-          options: { data: { display_name: displayName, role } },
+          options: { emailRedirectTo: authRedirectUrl, data: { display_name: displayName, role } },
         })
         if (error) throw error
         if (!data.session) setMessage('Check your email to confirm this account, then sign in.')
