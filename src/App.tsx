@@ -26,7 +26,7 @@ import {
   type Assessment, type Profile, type PlanningSnapshot, type TimetableSlot,
 } from './lib/coursecraft'
 import { calculateSgpa } from './lib/sgpa'
-import { emailConfirmationCallback, supabase } from './lib/supabase'
+import { authCallbackType, supabase, type AuthCallbackType } from './lib/supabase'
 import './App.css'
 
 const authRedirectUrl = 'https://adithyanandanarun.github.io/CourseCraft-Web/'
@@ -60,21 +60,33 @@ function ConfigurationScreen() {
 
 function AuthenticatedApp({ client }: { client: SupabaseClient }) {
   const [session, setSession] = useState<Session | null | undefined>(undefined)
-  const [showEmailConfirmation, setShowEmailConfirmation] = useState(emailConfirmationCallback)
+  const [authCallback, setAuthCallback] = useState<AuthCallbackType>(authCallbackType)
+  const [recoveryReady, setRecoveryReady] = useState(false)
 
   useEffect(() => {
-    if (showEmailConfirmation) {
+    if (authCallback === 'signup') {
       window.history.replaceState({}, document.title, window.location.pathname)
       void client.auth.signOut()
       return
+    }
+    if (authCallback === 'recovery') {
+      const markRecoveryReady = (nextSession: Session | null) => {
+        if (!nextSession) return
+        window.history.replaceState({}, document.title, window.location.pathname)
+        setRecoveryReady(true)
+      }
+      void client.auth.getSession().then(({ data }) => markRecoveryReady(data.session))
+      const { data: subscription } = client.auth.onAuthStateChange((_event, nextSession) => markRecoveryReady(nextSession))
+      return () => subscription.subscription.unsubscribe()
     }
 
     void client.auth.getSession().then(({ data }) => setSession(data.session))
     const { data: subscription } = client.auth.onAuthStateChange((_event, nextSession) => setSession(nextSession))
     return () => subscription.subscription.unsubscribe()
-  }, [client, showEmailConfirmation])
+  }, [authCallback, client])
 
-  if (showEmailConfirmation) return <EmailConfirmedScreen onLogin={() => setShowEmailConfirmation(false)} />
+  if (authCallback === 'signup') return <EmailConfirmedScreen onLogin={() => setAuthCallback(null)} />
+  if (authCallback === 'recovery') return <PasswordResetScreen client={client} ready={recoveryReady} onDone={() => { setSession(null); setAuthCallback(null) }} />
   if (session === undefined) return <LoadingScreen />
   if (!session) return <AuthScreen client={client} />
   return <ProfileGate client={client} user={session.user} />
@@ -95,8 +107,32 @@ function EmailConfirmedScreen({ onLogin }: { onLogin: () => void }) {
   )
 }
 
+function PasswordResetScreen({ client, ready, onDone }: { client: SupabaseClient; ready: boolean; onDone: () => void }) {
+  const [message, setMessage] = useState<string | null>(null)
+  const [pending, setPending] = useState(false)
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const password = String(new FormData(event.currentTarget).get('password') ?? '')
+    if (password.length < 8) { setMessage('Use at least 8 characters.'); return }
+    setPending(true)
+    setMessage(null)
+    try {
+      const { error } = await client.auth.updateUser({ password })
+      if (error) throw error
+      await client.auth.signOut()
+      onDone()
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Unable to update your password. Request a new reset email and try again.')
+    } finally {
+      setPending(false)
+    }
+  }
+  return <main className="auth-layout"><form className="auth-panel" onSubmit={submit}><Brand /><p className="eyebrow">PASSWORD RESET</p><h1>Choose a new password.</h1><p>Your new password must be at least 8 characters.</p><label>New password<input name="password" type="password" minLength={8} autoComplete="new-password" required disabled={!ready || pending} /></label>{message && <p className="form-message">{message}</p>}<button className="primary-action wide" type="submit" disabled={!ready || pending}>{pending ? 'Saving...' : ready ? 'Save new password' : 'Preparing secure reset...'}</button></form></main>
+}
+
 function AuthScreen({ client }: { client: SupabaseClient }) {
   const [signUp, setSignUp] = useState(false)
+  const [forgotPassword, setForgotPassword] = useState(false)
   const [role, setRole] = useState<'student' | 'advisor'>('student')
   const [message, setMessage] = useState<string | null>(null)
   const [pending, setPending] = useState(false)
@@ -129,6 +165,24 @@ function AuthScreen({ client }: { client: SupabaseClient }) {
     }
   }
 
+  async function requestPasswordReset(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const email = String(new FormData(event.currentTarget).get('email') ?? '').trim()
+    setMessage(null)
+    setPending(true)
+    try {
+      const { error } = await client.auth.resetPasswordForEmail(email, { redirectTo: authRedirectUrl })
+      if (error) throw error
+      setMessage('If an account exists for this email, a reset link is on its way.')
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Unable to send a reset email. Please try again.')
+    } finally {
+      setPending(false)
+    }
+  }
+
+  if (forgotPassword) return <main className="auth-layout"><form className="auth-panel" onSubmit={requestPasswordReset}><Brand /><p className="eyebrow">PASSWORD RESET</p><h1>Reset your password.</h1><p>Enter your email and we will send a secure reset link.</p><label>Email<input name="email" type="email" required autoComplete="email" /></label>{message && <p className="form-message">{message}</p>}<button className="primary-action wide" disabled={pending} type="submit">{pending ? 'Sending...' : 'Send reset link'}</button><button className="text-button auth-switch" type="button" disabled={pending} onClick={() => { setForgotPassword(false); setMessage(null) }}>Back to sign in</button></form></main>
+
   return (
     <main className="auth-layout">
       <form className="auth-panel" onSubmit={submit}>
@@ -145,10 +199,11 @@ function AuthScreen({ client }: { client: SupabaseClient }) {
         </>}
         <label>Email<input name="email" type="email" required autoComplete="email" /></label>
         <label>Password<input name="password" type="password" required minLength={8} autoComplete={signUp ? 'new-password' : 'current-password'} /></label>
+        {!signUp && <button className="text-button forgot-password" type="button" disabled={pending} onClick={() => { setForgotPassword(true); setMessage(null) }}>Forgot password?</button>}
         {message && <p className="form-message">{message}</p>}
         <button className="primary-action wide" disabled={pending} type="submit">{pending ? 'Please wait...' : signUp ? 'Create account' : 'Sign in'}</button>
         <button className="text-button auth-switch" type="button" disabled={pending} onClick={() => { setSignUp(!signUp); setMessage(null) }}>
-          {signUp ? 'Already have an account? Sign in' : 'New to CourseCraft? Create an account'}
+          {signUp ? 'Already have an account? Sign in' : 'Create a new account'}
         </button>
       </form>
     </main>
@@ -225,17 +280,9 @@ function StudentWorkspace({ client, profile }: { client: SupabaseClient; profile
         <>
           <section className="overview" aria-label="Semester overview">
             <article className="metric"><span>Projected SGPA</span><strong>{sgpa?.toFixed(2) ?? '---'}</strong><small>{sgpa ? 'From your entered marks' : 'Add marks to calculate it'}</small></article>
-            <article className="metric"><span>Advisor coaching</span><strong className="metric-name">Optional</strong><small>Pairing arrives in Phase 3</small></article>
+            <article className="metric"><span>Current subjects</span><strong>{snapshot.subjects.length}</strong><small>{snapshot.subjects.length === 1 ? 'Subject in this semester' : 'Subjects in this semester'}</small></article>
           </section>
           <PlanningBoard client={client} spaceId={profile.space_id!} semesterId={snapshot.semester.id} subjects={snapshot.subjects} />
-          <section className="content-grid dashboard-subjects-grid">
-            <section className="subjects-section" aria-labelledby="subjects-heading">
-              <div className="section-heading"><div><p className="eyebrow">CURRENT SEMESTER</p><h2 id="subjects-heading">Subjects</h2></div><button className="text-button" type="button" onClick={() => setModal('subject')}>Add subject</button></div>
-              {snapshot.subjects.length === 0 ? <p className="empty-copy">Add your first subject, then record assessment weights and marks.</p> : <div className="subject-list">
-                {snapshot.subjects.map((subject) => <SubjectRow key={subject.id} subject={subject} onAddAssessment={() => { setEditingAssessment(null); setAssessmentSubject(subject); setModal('assessment') }} onEditAssessment={(assessment) => { setEditingAssessment(assessment); setAssessmentSubject(subject); setModal('assessment') }} />)}
-              </div>}
-            </section>
-          </section>
         </>
       ) : view === 'subjects' ? <SubjectsView snapshot={snapshot} onAdd={() => setModal('subject')} onEdit={(subject) => setEditingSubject(subject)} onAddAssessment={(subject) => { setEditingAssessment(null); setAssessmentSubject(subject); setModal('assessment') }} />
         : view === 'daily' ? <DailyLogView client={client} spaceId={profile.space_id!} subjects={snapshot.subjects} />
@@ -251,14 +298,13 @@ function StudentWorkspace({ client, profile }: { client: SupabaseClient; profile
   )
 }
 
-function SubjectRow({ subject, onAddAssessment, onEditAssessment }: { subject: AcademicSubject; onAddAssessment: () => void; onEditAssessment: (assessment: Assessment) => void }) {
-  const percentage = subjectPercentage(subject)
-  return <article className="subject-row"><div className="subject-icon"><BookOpen size={18} /></div><div className="subject-detail"><h3>{subject.name}</h3><p>{subject.code ? `${subject.code} · ` : ''}{subject.credits} credits · {subject.assessments.length} assessment{subject.assessments.length === 1 ? '' : 's'}</p>{subject.assessments.map((assessment) => <button className="assessment-edit" key={assessment.id} type="button" onClick={() => onEditAssessment(assessment)}>{assessment.title}: {assessment.obtained_marks ?? '-'} / {assessment.max_marks} ({assessment.weight_pct}%) <Pencil size={13} /></button>)}</div><div className="grade"><strong>{percentage === null ? '---' : `${percentage.toFixed(0)}%`}</strong><button className="text-button" type="button" onClick={onAddAssessment}>Add marks</button></div></article>
-}
-
 function WorkspaceNav({ view, onChange }: { view: 'dashboard' | 'subjects' | 'daily' | 'timetable' | 'account'; onChange: (view: 'dashboard' | 'subjects' | 'daily' | 'timetable' | 'account') => void }) {
   const items = [['dashboard', LayoutDashboard, 'Dashboard'], ['subjects', BookOpen, 'Subjects'], ['daily', ClipboardCheck, 'Daily log'], ['timetable', Table2, 'Timetable'], ['account', Settings, 'Account']] as const
-  return <nav className="workspace-nav" aria-label="Workspace"><div className="nav-scroll">{items.map(([id, Icon, label]) => <button key={id} type="button" className={view === id ? 'active' : ''} onClick={() => onChange(id)}><Icon size={18} />{label}</button>)}</div></nav>
+  const buttons = items.map(([id, Icon, label]) => <button key={id} type="button" className={view === id ? 'active' : ''} aria-current={view === id ? 'page' : undefined} onClick={() => onChange(id)}><Icon size={18} /><span>{label}</span></button>)
+  return <>
+    <nav className="workspace-nav" aria-label="Workspace"><div className="nav-scroll">{buttons}</div></nav>
+    <nav className="mobile-workspace-nav" aria-label="Workspace">{buttons}</nav>
+  </>
 }
 
 function SubjectsView({ snapshot, onAdd, onEdit, onAddAssessment }: { snapshot: AcademicSnapshot; onAdd: () => void; onEdit: (subject: AcademicSubject) => void; onAddAssessment: (subject: AcademicSubject) => void }) {
@@ -309,7 +355,7 @@ function PlanningBoard({ client, spaceId, semesterId, subjects }: { client: Supa
     }
   }
   return <section className="planner-section" aria-labelledby="planning-heading">
-    <div className="section-heading"><div><p className="eyebrow">PHASE 2</p><h2 id="planning-heading">Academic planning</h2></div></div>
+    <div className="section-heading"><div><p className="eyebrow">YOUR WEEK</p><h2 id="planning-heading">Academic planning</h2></div></div>
     <p className="planner-intro">Turn an image timetable into structured classes with an AI model, then paste the JSON here. Attendance remains under your control.</p>
     {error && <p className="form-message">{error}</p>}
     {!data ? <div className="planner-loading">Loading planner...</div> : <div className="planner-grid">
