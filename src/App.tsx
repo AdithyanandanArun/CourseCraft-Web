@@ -280,17 +280,9 @@ function StudentWorkspace({ client, profile }: { client: SupabaseClient; profile
         <>
           <section className="overview" aria-label="Semester overview">
             <article className="metric"><span>Projected SGPA</span><strong>{sgpa?.toFixed(2) ?? '---'}</strong><small>{sgpa ? 'From your entered marks' : 'Add marks to calculate it'}</small></article>
-            <article className="metric"><span>Advisor coaching</span><strong className="metric-name">Optional</strong><small>Pairing arrives in Phase 3</small></article>
+            <article className="metric"><span>Current subjects</span><strong>{snapshot.subjects.length}</strong><small>{snapshot.subjects.length === 1 ? 'Subject in this semester' : 'Subjects in this semester'}</small></article>
           </section>
           <PlanningBoard client={client} spaceId={profile.space_id!} semesterId={snapshot.semester.id} subjects={snapshot.subjects} />
-          <section className="content-grid dashboard-subjects-grid">
-            <section className="subjects-section" aria-labelledby="subjects-heading">
-              <div className="section-heading"><div><p className="eyebrow">CURRENT SEMESTER</p><h2 id="subjects-heading">Subjects</h2></div><button className="text-button" type="button" onClick={() => setModal('subject')}>Add subject</button></div>
-              {snapshot.subjects.length === 0 ? <p className="empty-copy">Add your first subject, then record assessment weights and marks.</p> : <div className="subject-list">
-                {snapshot.subjects.map((subject) => <SubjectRow key={subject.id} subject={subject} onAddAssessment={() => { setEditingAssessment(null); setAssessmentSubject(subject); setModal('assessment') }} onEditAssessment={(assessment) => { setEditingAssessment(assessment); setAssessmentSubject(subject); setModal('assessment') }} />)}
-              </div>}
-            </section>
-          </section>
         </>
       ) : view === 'subjects' ? <SubjectsView snapshot={snapshot} onAdd={() => setModal('subject')} onEdit={(subject) => setEditingSubject(subject)} onAddAssessment={(subject) => { setEditingAssessment(null); setAssessmentSubject(subject); setModal('assessment') }} />
         : view === 'daily' ? <DailyLogView client={client} spaceId={profile.space_id!} subjects={snapshot.subjects} />
@@ -306,14 +298,13 @@ function StudentWorkspace({ client, profile }: { client: SupabaseClient; profile
   )
 }
 
-function SubjectRow({ subject, onAddAssessment, onEditAssessment }: { subject: AcademicSubject; onAddAssessment: () => void; onEditAssessment: (assessment: Assessment) => void }) {
-  const percentage = subjectPercentage(subject)
-  return <article className="subject-row"><div className="subject-icon"><BookOpen size={18} /></div><div className="subject-detail"><h3>{subject.name}</h3><p>{subject.code ? `${subject.code} · ` : ''}{subject.credits} credits · {subject.assessments.length} assessment{subject.assessments.length === 1 ? '' : 's'}</p>{subject.assessments.map((assessment) => <button className="assessment-edit" key={assessment.id} type="button" onClick={() => onEditAssessment(assessment)}>{assessment.title}: {assessment.obtained_marks ?? '-'} / {assessment.max_marks} ({assessment.weight_pct}%) <Pencil size={13} /></button>)}</div><div className="grade"><strong>{percentage === null ? '---' : `${percentage.toFixed(0)}%`}</strong><button className="text-button" type="button" onClick={onAddAssessment}>Add marks</button></div></article>
-}
-
 function WorkspaceNav({ view, onChange }: { view: 'dashboard' | 'subjects' | 'daily' | 'timetable' | 'account'; onChange: (view: 'dashboard' | 'subjects' | 'daily' | 'timetable' | 'account') => void }) {
   const items = [['dashboard', LayoutDashboard, 'Dashboard'], ['subjects', BookOpen, 'Subjects'], ['daily', ClipboardCheck, 'Daily log'], ['timetable', Table2, 'Timetable'], ['account', Settings, 'Account']] as const
-  return <nav className="workspace-nav" aria-label="Workspace"><div className="nav-scroll">{items.map(([id, Icon, label]) => <button key={id} type="button" className={view === id ? 'active' : ''} onClick={() => onChange(id)}><Icon size={18} />{label}</button>)}</div></nav>
+  const buttons = items.map(([id, Icon, label]) => <button key={id} type="button" className={view === id ? 'active' : ''} aria-current={view === id ? 'page' : undefined} onClick={() => onChange(id)}><Icon size={18} /><span>{label}</span></button>)
+  return <>
+    <nav className="workspace-nav" aria-label="Workspace"><div className="nav-scroll">{buttons}</div></nav>
+    <nav className="mobile-workspace-nav" aria-label="Workspace">{buttons}</nav>
+  </>
 }
 
 function SubjectsView({ snapshot, onAdd, onEdit, onAddAssessment }: { snapshot: AcademicSnapshot; onAdd: () => void; onEdit: (subject: AcademicSubject) => void; onAddAssessment: (subject: AcademicSubject) => void }) {
@@ -364,7 +355,7 @@ function PlanningBoard({ client, spaceId, semesterId, subjects }: { client: Supa
     }
   }
   return <section className="planner-section" aria-labelledby="planning-heading">
-    <div className="section-heading"><div><p className="eyebrow">PHASE 2</p><h2 id="planning-heading">Academic planning</h2></div></div>
+    <div className="section-heading"><div><p className="eyebrow">YOUR WEEK</p><h2 id="planning-heading">Academic planning</h2></div></div>
     <p className="planner-intro">Turn an image timetable into structured classes with an AI model, then paste the JSON here. Attendance remains under your control.</p>
     {error && <p className="form-message">{error}</p>}
     {!data ? <div className="planner-loading">Loading planner...</div> : <div className="planner-grid">
